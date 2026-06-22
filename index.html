@@ -133,7 +133,18 @@
 
   <div id="map"></div>
   <div class="map-tip" id="tip" style="display:none"></div>
+  <button class="float-go" id="floatGo">Route &amp; analyse</button>
 </main>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card">
+    <button class="modal-x" id="modalClose" aria-label="Close">×</button>
+    <div id="modalBody"></div>
+    <div class="row" style="margin-top:14px;justify-content:flex-end">
+      <button class="btn primary" id="modalOk">Got it</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- App modules: plain scripts (no bundler) so they run from file:// locally and on Vercel.

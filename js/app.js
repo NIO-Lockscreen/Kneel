@@ -90,6 +90,7 @@
         state.recommended = a.kneeLoad <= b.kneeLoad ? 0 : 1;
         state.selected = state.recommended;
         ui.renderCompare();
+        ui.showModal(ui.compareSummary());
         setStatus("Done. Solid = shown trip, dashed = the other. Green/blue is easy on the knees; red is steep downhill.");
         return;
       }
@@ -117,6 +118,7 @@
       }
       state.selected = state.recommended;
       ui.render();
+      if (state.mode === "loop") ui.showModal(ui.loopSummary());
       setStatus("Done. Green/blue is easy on the knees; red is the steep downhill to avoid.");
     } catch (err) {
       console.error(err);
@@ -193,7 +195,12 @@
 
   /* ---------- controls ---------- */
   $("go").onclick = run;
+  $("floatGo").onclick = run;
   $("suggest").onclick = suggest;
+  $("modalClose").onclick = ui.hideModal;
+  $("modalOk").onclick = ui.hideModal;
+  $("modal").addEventListener("click", (e) => { if (e.target.id === "modal") ui.hideModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") ui.hideModal(); });
   $("addrGo").onclick = routeFromAddresses;
   $("addrStart").addEventListener("keydown", (e) => { if (e.key === "Enter") routeFromAddresses(); });
   $("addrEnd").addEventListener("keydown", (e) => { if (e.key === "Enter") routeFromAddresses(); });

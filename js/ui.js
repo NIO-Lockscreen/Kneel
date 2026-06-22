@@ -245,7 +245,58 @@
     const ready = ES.state.mode === "compare" ? n >= 4 : ES.state.mode === "ab" ? n >= 2 : n >= 3;
     $("go").disabled = !ready || ES.state.busy;
     const sg = $("suggest"); if (sg) sg.disabled = ES.state.busy || !ES.state.routes.length;
+    const fg = $("floatGo");
+    if (fg) fg.classList.toggle("show", ready && !ES.state.busy && !ES.state.routes.length);
   }
 
-  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, resetResults, updateGoEnabled };
+  // ---- results modal ----
+  function showModal(html) { $("modalBody").innerHTML = html; $("modal").hidden = false; }
+  function hideModal() { $("modal").hidden = true; }
+
+  function loopSummary() {
+    const routes = ES.state.routes, best = ES.state.recommended;
+    const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
+    const saved = Math.round(other.steepDown - chosen.steepDown);
+    const gentleEither = saved <= 3;
+    const dir = best === 0 ? "in the direction you marked it" : "in the reverse direction";
+    const title = gentleEither ? "This loop is gentle either way" : `Walk it ${dir}`;
+    const lead = gentleEither
+      ? `There's little difference between the two directions here — your knees won't mind which way you go, so pick the views you prefer.`
+      : `I suggest walking this loop <b>${dir}</b>. That takes the steep parts <b>uphill</b> and lets you descend the gentler side — about <b>${saved} m</b> less steep downhill than the other way, which is what spares your knees.`;
+    const rows =
+      `<tr><td>Distance</td><td class="num">${fmtM(chosen.dist)}</td></tr>` +
+      `<tr><td>Est. time</td><td class="num">${fmtTime(chosen.time)}</td></tr>` +
+      `<tr><td>Steep downhill</td><td class="num">${Math.round(chosen.steepDown)} m</td></tr>` +
+      `<tr><td>Total descent ↓</td><td class="num">${Math.round(chosen.descent)} m</td></tr>` +
+      `<tr><td>Max down grade</td><td class="num">${(chosen.maxDown * 100).toFixed(0)}%</td></tr>`;
+    return `<div class="modal-title">${title}</div><div class="modal-lead">${lead}</div>` +
+      `<table class="cmp-table"><tbody>${rows}</tbody></table>`;
+  }
+
+  function compareSummary() {
+    const [a, b] = ES.state.routes;
+    const gentler = a.kneeLoad <= b.kneeLoad ? 0 : 1;
+    const faster = a.time <= b.time ? 0 : 1;
+    const dSteep = Math.round(Math.abs(a.steepDown - b.steepDown));
+    const dMin = Math.round(Math.abs(a.time - b.time) / 60);
+    let lead;
+    if (gentler === faster) {
+      lead = `<b>Trip ${gentler + 1}</b> wins on both counts — it's gentler on the knees${dSteep > 5 ? ` (${dSteep} m less steep downhill)` : ``} and the quicker walk${dMin >= 1 ? ` by ${dMin} min` : ``}.`;
+    } else if (dSteep <= 5) {
+      lead = `The two are about equally kind to the knees, so go with <b>Trip ${faster + 1}</b> — it's faster${dMin >= 1 ? ` by ${dMin} min` : ``}.`;
+    } else {
+      lead = `<b>Trip ${faster + 1}</b> is faster${dMin >= 1 ? ` by ${dMin} min` : ``}, but <b>Trip ${gentler + 1}</b> is gentler on the knees — ${dSteep} m less steep downhill. For sore knees, take Trip ${gentler + 1}.`;
+    }
+    const cell = (lower, val) => `<td class="num${lower ? " win" : ""}">${val}</td>`;
+    const rows =
+      `<tr><td>Steep downhill</td>${cell(a.steepDown < b.steepDown, Math.round(a.steepDown) + " m")}${cell(b.steepDown < a.steepDown, Math.round(b.steepDown) + " m")}</tr>` +
+      `<tr><td>Distance</td>${cell(false, fmtM(a.dist))}${cell(false, fmtM(b.dist))}</tr>` +
+      `<tr><td>Est. time</td>${cell(a.time < b.time, fmtTime(a.time))}${cell(b.time < a.time, fmtTime(b.time))}</tr>` +
+      `<tr><td>Total descent ↓</td>${cell(a.descent < b.descent, Math.round(a.descent) + " m")}${cell(b.descent < a.descent, Math.round(b.descent) + " m")}</tr>`;
+    return `<div class="modal-title">EasyStride recommends Trip ${gentler + 1}</div>` +
+      `<div class="modal-lead">${lead}</div>` +
+      `<table class="cmp-table"><thead><tr><th></th><th>Trip 1</th><th>Trip 2</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary };
 })();
