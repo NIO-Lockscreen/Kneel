@@ -27,7 +27,7 @@ header{
   padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);
 }
 .wordmark{font-weight:800;font-size:20px;letter-spacing:-.02em;display:flex;align-items:baseline;gap:8px}
-.wordmark .dot{width:9px;height:9px;border-radius:50%;background:var(--g-up);box-shadow:10px 0 0 var(--g-flat),20px 0 0 var(--g-down1),30px 0 0 var(--g-down3);transform:translateX(2px)}
+.wordmark .dot{width:9px;height:9px;border-radius:50%;background:var(--g-up);box-shadow:10px 0 0 var(--g-flat),20px 0 0 var(--g-down1),30px 0 0 var(--g-down3);transform:translateX(2px);margin-right:34px}
 .tagline{color:var(--ink-soft);font-size:13px}
 .tagline b{color:var(--contour);font-weight:600}
 main{flex:1;display:flex;min-height:0;position:relative}
