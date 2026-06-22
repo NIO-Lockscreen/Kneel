@@ -36,14 +36,13 @@
   }
 
   // ---- geocoding (Nominatim) ----
-  // Biased toward the Trondheim area so short queries land locally.
-  async function geocode(query) {
+  // `viewbox` (west,north,east,south) softly biases results to a region; omit
+  // it for a global search (e.g. picking a town/city).
+  async function geocode(query, viewbox) {
     const q = encodeURIComponent(query.trim());
-    if (!q) throw new Error("empty address");
-    // viewbox around greater Trondheim: lng,lat (left,top,right,bottom)
-    const viewbox = "10.10,63.50,10.70,63.30";
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1` +
-      `&q=${q}&viewbox=${viewbox}&bounded=0&accept-language=en`;
+    if (!q) throw new Error("empty query");
+    let url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${q}&accept-language=en`;
+    if (viewbox) url += `&viewbox=${viewbox}&bounded=0`;
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     if (!r.ok) throw new Error("geocode " + r.status);
     const j = await r.json();
