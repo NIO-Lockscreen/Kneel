@@ -212,19 +212,40 @@
   // ---- suggested trips list ----
   function ratingColor(r) { return getCss(r === "friendly" ? "--g-flat" : r === "moderate" ? "--g-down1" : "--g-down3"); }
   function ratingLabel(r) { return r === "friendly" ? "Knee-friendly" : r === "moderate" ? "Moderate" : "Avoid ↓"; }
-  function renderSuggestions(onSelect) {
+  // Derive the rating from measured steep-downhill metres when we have them, so
+  // colour/label/order always agree with the analysis; fall back to the static
+  // hint until the metric has been computed.
+  function tripRating(t, metrics) {
+    const m = metrics && metrics[t.id];
+    if (m && typeof m.steepDown === "number") {
+      return m.steepDown < 50 ? "friendly" : m.steepDown < 150 ? "moderate" : "avoid";
+    }
+    return t.rating || "moderate";
+  }
+  function renderSuggestions(onSelect, metrics) {
     const wrap = $("suggestions");
     if (!wrap || !ES.trips) return;
+    metrics = metrics || {};
+    const list = ES.trips.all.slice().sort((a, b) => {
+      const ma = metrics[a.id], mb = metrics[b.id];
+      if (ma && mb) return ma.steepDown - mb.steepDown;   // least steep downhill first
+      if (ma) return -1; if (mb) return 1;
+      return ES.trips.RANK[a.rating] - ES.trips.RANK[b.rating];
+    });
     wrap.innerHTML = "";
-    ES.trips.sorted().forEach((t) => {
-      const col = ratingColor(t.rating);
+    list.forEach((t) => {
+      const m = metrics[t.id];
+      const rating = tripRating(t, metrics);
+      const col = ratingColor(rating);
+      const distLabel = m ? fmtM(m.dist) : t.dist;
+      const steepLabel = m ? `${Math.round(m.steepDown)} m steep ↓` : (t.mode === "loop" ? "loop" : "A→B");
       const div = document.createElement("div");
-      div.className = "trip trip-" + t.rating;
+      div.className = "trip trip-" + rating;
       div.style.setProperty("--trip", col);
       div.innerHTML =
         `<div class="trip-head"><span class="trip-name">${t.name}</span>` +
-        `<span class="trip-badge" style="background:${col}">${ratingLabel(t.rating)}</span></div>` +
-        `<div class="trip-meta">${t.area} · ${t.dist} · ${t.mode === "loop" ? "loop" : "A→B"}</div>` +
+        `<span class="trip-badge" style="background:${col}">${ratingLabel(rating)}</span></div>` +
+        `<div class="trip-meta">${t.area} · ${distLabel} · ${steepLabel}</div>` +
         `<div class="trip-guide">${t.guide}</div>`;
       div.onclick = () => onSelect(t);
       wrap.appendChild(div);
