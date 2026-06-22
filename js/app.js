@@ -33,10 +33,61 @@
   window.addEventListener("resize", fixMapSize);
   if (window.ResizeObserver) new ResizeObserver(fixMapSize).observe($("map"));
 
+  /* ---------- home (saved locally) ---------- */
+  const HOME_KEY = "easystride.home";
+  function loadHome() { try { return JSON.parse(localStorage.getItem(HOME_KEY)); } catch (e) { return null; } }
+  function saveHome() {
+    const c = map.getCenter();
+    try { localStorage.setItem(HOME_KEY, JSON.stringify({ lat: c.lat, lng: c.lng, zoom: map.getZoom() })); }
+    catch (e) { setStatus("Couldn't save home (storage unavailable).", true); return; }
+    $("homeGo").disabled = false;
+    setStatus("Saved this view as your home. It'll load here next time.");
+  }
+  function goHome() {
+    const h = loadHome();
+    if (!h) { setStatus("No home saved yet — centre the map where you like, then “Set as home”.", true); return; }
+    map.setView([h.lat, h.lng], h.zoom || 14);
+    setStatus("Centred on your saved home.");
+  }
+
+  /* ---------- locale: hide Trondheim-only lists when away ---------- */
+  const TRD = { lat: 63.413, lng: 10.38 };
+  function refreshLocale() {
+    const c = map.getCenter();
+    const near = geo.haversine({ lat: c.lat, lng: c.lng }, TRD) < 40000; // 40 km
+    $("jumpsBlock").style.display = near ? "" : "none";
+    $("suggestBlock").style.display = near ? "" : "none";
+  }
+  map.on("moveend", refreshLocale);
+
+  /* ---------- mobile bottom-sheet ---------- */
+  function isMobile() { return window.matchMedia("(max-width:820px)").matches; }
+  function expandSheet() { if (isMobile()) $("sidebar").classList.add("expanded"); }
+  function collapseSheet() { $("sidebar").classList.remove("expanded"); }
+
+  // apply saved home (else Trondheim default) before first paint of controls
+  (function initView() {
+    const h = loadHome();
+    if (h) map.setView([h.lat, h.lng], h.zoom || 14);
+    refreshLocale();
+  })();
+
   /* ---------- waypoint flow ---------- */
+  // tap a waypoint marker to remove it (fixes accidental taps)
+  ES.onWaypointClick = (i) => {
+    if (state.busy) return;
+    state.waypoints.splice(i, 1);
+    hideTripBanner();
+    ui.resetResults();
+    ui.drawWaypoints();
+    ui.updateGoEnabled();
+    setStatus(state.waypoints.length ? "Removed that point. Tap the map to add another." : "Cleared. Tap the map to begin.");
+  };
+
   map.on("click", (e) => {
     if (state.busy) return;
     hideTripBanner();
+    collapseSheet();
     const w = { lat: e.latlng.lat, lng: e.latlng.lng };
     if (state.mode === "ab") {
       if (state.waypoints.length >= 2) { state.waypoints = []; ui.resetResults(); }
@@ -120,6 +171,7 @@
       state.selected = state.recommended;
       ui.render();
       if (state.mode === "loop") ui.showModal(ui.loopSummary());
+      else expandSheet(); // surface the stats on mobile
       setStatus("Done. Green/blue is easy on the knees; red is the steep downhill to avoid.");
     } catch (err) {
       console.error(err);
@@ -192,7 +244,7 @@
       return;
     }
     if (state.routes.length === 1) {
-      setStatus("Only one walking route exists between these points — try moving them or widening the detour.", true);
+      setStatus("The router returned only one walking route here — it found no sufficiently distinct alternative. Other paths you see may be nearly the same length or not in the foot network.");
       return;
     }
     const best = analysis.pickWithinDetour(state.routes, state.detour);
@@ -265,15 +317,16 @@
     else word = "very steep — stair-like";
     $("thrExplain").innerHTML =
       `That's <b>≈${deg}°</b> — about a <b>1&nbsp;m drop every ${run}&nbsp;m</b>, like ${word}. ` +
-      `Downhill steeper than this is flagged <b style="color:var(--g-down3)">red</b> as hard on the knees.`;
-    // slope glyph: a right triangle whose rise tracks the steepness
+      `Downhill steeper than this turns <b style="color:var(--g-down3)">orange/red</b>; anything gentler stays green. ` +
+      `<i>Set it lower if your knees are sensitive — then more of the route is flagged.</i>`;
+    // slope glyph: a downhill ramp — high on the left, descending to the right
     const H = 24, x0 = 3, x1 = 37, base = H - 3;
     const rise = Math.min(base - 2, (x1 - x0) * (pct / 100) * 2.2); // gently exaggerated for visibility
     const top = base - rise;
     const col = pct <= 7 ? "var(--g-flat)" : pct <= 10 ? "var(--g-down1)" : pct <= 13 ? "var(--g-down2)" : "var(--g-down3)";
     $("thrSlope").innerHTML =
-      `<polygon points="${x0},${base} ${x1},${base} ${x1},${top.toFixed(1)}" fill="${col}" fill-opacity="0.18"/>` +
-      `<line x1="${x0}" y1="${base}" x2="${x1}" y2="${top.toFixed(1)}" stroke="${col}" stroke-width="2" stroke-linecap="round"/>`;
+      `<polygon points="${x0},${top.toFixed(1)} ${x1},${base} ${x0},${base}" fill="${col}" fill-opacity="0.18"/>` +
+      `<line x1="${x0}" y1="${top.toFixed(1)}" x2="${x1}" y2="${base}" stroke="${col}" stroke-width="2" stroke-linecap="round"/>`;
   }
 
   $("detour").oninput = (e) => {
@@ -379,10 +432,14 @@
     run();
   }
 
-  /* ---------- location & collapsibles ---------- */
+  /* ---------- location, home, collapsibles, sheet ---------- */
   $("townGo").onclick = goToTown;
   $("townInput").addEventListener("keydown", (e) => { if (e.key === "Enter") goToTown(); });
+  $("homeGo").onclick = goHome;
+  $("homeSet").onclick = saveHome;
+  $("homeGo").disabled = !loadHome();
   $("tripBannerClose").onclick = hideTripBanner;
+  $("sheetHandle").onclick = () => $("sidebar").classList.toggle("expanded");
   document.querySelectorAll(".collapse-head").forEach((h) => {
     h.onclick = () => h.closest(".collapsible").classList.toggle("collapsed");
   });

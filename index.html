@@ -14,7 +14,8 @@
 </header>
 
 <main>
-  <aside>
+  <aside id="sidebar">
+    <button class="sheet-handle" id="sheetHandle" aria-label="Expand or collapse controls"><span class="grip"></span><span class="sheet-label">Plan a walk</span></button>
     <div class="scroll">
 
       <div class="block">
@@ -23,6 +24,10 @@
         <div class="row" style="flex-wrap:nowrap">
           <input class="addr" id="townInput" type="text" placeholder="Town or city (e.g. Bergen, Norway)" autocomplete="off" value="Trondheim, Norway" />
           <button class="btn" id="townGo">Go</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="homeGo">⌂ Home</button>
+          <button class="btn ghost" id="homeSet">Set current view as home</button>
         </div>
       </div>
 
@@ -129,11 +134,10 @@
         <div class="eyebrow">How to read the map</div>
         <div class="legend">
           <div class="li"><span class="sw" style="background:var(--g-up)"></span>Uphill — fine</div>
-          <div class="li"><span class="sw" style="background:var(--g-flat)"></span>Flat — fine</div>
-          <div class="li"><span class="sw" style="background:var(--g-down1)"></span>Gentle down</div>
-          <div class="li"><span class="sw" style="background:var(--g-down2)"></span>Down — watch it</div>
-          <div class="li"><span class="sw" style="background:var(--g-down3)"></span>Steep down — sore</div>
-          <div class="li"><span class="num-ico" style="width:16px;height:16px;font-size:9px">2</span>Your waypoints</div>
+          <div class="li"><span class="sw" style="background:var(--g-flat)"></span>Flat / gentle — fine</div>
+          <div class="li"><span class="sw" style="background:var(--g-down2)"></span>Over your limit — watch</div>
+          <div class="li"><span class="sw" style="background:var(--g-down3)"></span>Well over — sore</div>
+          <div class="li"><span class="num-ico" style="width:16px;height:16px;font-size:9px">2</span>Waypoint (tap to remove)</div>
         </div>
       </div>
 
