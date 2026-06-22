@@ -132,6 +132,16 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .trip-meta{font-family:var(--font-data);font-size:11px;color:var(--ink-soft);margin-top:3px}
 .trip-guide{font-size:12px;color:var(--ink-soft);line-height:1.45;margin-top:4px}
 .trip-avoid .trip-name::before{content:"⚠ ";color:var(--g-down3)}
+/* saved trips */
+.saved-list{display:flex;flex-direction:column;gap:8px}
+.saved{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:9px 11px}
+.saved-main{min-width:0}
+.saved-name{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-meta{font-family:var(--font-data);font-size:11px;color:var(--ink-soft);margin-top:2px}
+.saved-acts{display:flex;gap:6px;flex:none}
+.saved-acts .btn{padding:7px 10px;font-size:12px}
+#homeLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* profile */
 .profile{display:none}
 .profile.show{display:block}

@@ -231,6 +231,35 @@
     });
   }
 
+  // ---- saved trips list ----
+  function renderSavedTrips(trips, handlers) {
+    const wrap = $("savedTrips");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!trips.length) {
+      wrap.innerHTML = `<div class="hint">No saved trips yet. Plan a route, then tap <b>Save route ★</b>.</div>`;
+      return;
+    }
+    trips.forEach((t) => {
+      const st = t.stats || {};
+      const bits = [t.mode === "loop" ? "loop" : t.mode === "compare" ? "compare" : "A→B"];
+      if (st.dist != null) bits.push(fmtM(st.dist));
+      if (st.time != null) bits.push(fmtTime(st.time));
+      const div = document.createElement("div");
+      div.className = "saved";
+      div.innerHTML =
+        `<div class="saved-main">` +
+        `<div class="saved-name">${t.name}</div>` +
+        `<div class="saved-meta">${bits.join(" · ")}</div></div>` +
+        `<div class="saved-acts">` +
+        `<button class="btn" data-act="edit">Edit</button>` +
+        `<button class="btn ghost" data-act="del" aria-label="Delete">✕</button></div>`;
+      div.querySelector('[data-act="edit"]').onclick = () => handlers.onEdit(t);
+      div.querySelector('[data-act="del"]').onclick = () => handlers.onDelete(t);
+      wrap.appendChild(div);
+    });
+  }
+
   function resetResults() {
     ES.state.routes = []; ES.state.selected = 0; ES.state.recommended = 0;
     ES.layers.route.clearLayers(); ES.layers.deco.clearLayers();
@@ -246,6 +275,7 @@
     const ready = ES.state.mode === "compare" ? n >= 4 : ES.state.mode === "ab" ? n >= 2 : n >= 3;
     $("go").disabled = !ready || ES.state.busy;
     const sg = $("suggest"); if (sg) sg.disabled = ES.state.busy || !ES.state.routes.length;
+    const sr = $("saveRoute"); if (sr) sr.disabled = ES.state.busy || !ES.state.routes.length;
     const fg = $("floatGo");
     if (fg) fg.classList.toggle("show", ready && !ES.state.busy && !ES.state.routes.length);
   }
@@ -299,5 +329,5 @@
       `<table class="cmp-table"><thead><tr><th></th><th>Trip 1</th><th>Trip 2</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
-  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary };
+  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, renderSavedTrips, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary };
 })();

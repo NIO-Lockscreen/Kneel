@@ -25,10 +25,20 @@
           <input class="addr" id="townInput" type="text" placeholder="Town or city (e.g. Bergen, Norway)" autocomplete="off" value="Trondheim, Norway" />
           <button class="btn" id="townGo">Go</button>
         </div>
-        <div class="row">
-          <button class="btn" id="homeGo">⌂ Home</button>
-          <button class="btn ghost" id="homeSet">Set current view as home</button>
+        <div class="row" style="flex-wrap:nowrap">
+          <input class="addr" id="homeInput" type="text" placeholder="Your home address" autocomplete="off" />
+          <button class="btn" id="homeSet">Save</button>
         </div>
+        <div class="row" style="align-items:center">
+          <button class="btn" id="homeGo">⌂ Go home</button>
+          <span class="hint" id="homeLabel"></span>
+        </div>
+      </div>
+
+      <div class="block" id="tripsBlock">
+        <div class="eyebrow">My trips</div>
+        <div id="savedTrips" class="saved-list"></div>
+        <div class="row"><button class="btn ghost" id="exportTrips">Export all (GPX)</button></div>
       </div>
 
       <div class="block">
@@ -100,6 +110,7 @@
         </div>
         <div class="row">
           <button class="btn" id="suggest" disabled>Suggest a gentler route ↺</button>
+          <button class="btn" id="saveRoute" disabled>Save route ★</button>
         </div>
         <div class="status" id="status">Pick your points on the map to begin.</div>
       </div>
@@ -173,6 +184,7 @@
 <!-- App modules: plain scripts (no bundler) so they run from file:// locally and on Vercel.
      Load order matters — each attaches to the window.EasyStride namespace. -->
 <script src="js/core.js"></script>
+<script src="js/storage.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/api.js"></script>
 <script src="js/analysis.js"></script>

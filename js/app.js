@@ -33,21 +33,32 @@
   window.addEventListener("resize", fixMapSize);
   if (window.ResizeObserver) new ResizeObserver(fixMapSize).observe($("map"));
 
-  /* ---------- home (saved locally) ---------- */
-  const HOME_KEY = "easystride.home";
-  function loadHome() { try { return JSON.parse(localStorage.getItem(HOME_KEY)); } catch (e) { return null; } }
-  function saveHome() {
-    const c = map.getCenter();
-    try { localStorage.setItem(HOME_KEY, JSON.stringify({ lat: c.lat, lng: c.lng, zoom: map.getZoom() })); }
-    catch (e) { setStatus("Couldn't save home (storage unavailable).", true); return; }
-    $("homeGo").disabled = false;
-    setStatus("Saved this view as your home. It'll load here next time.");
+  /* ---------- home (saved exact address, locally) ---------- */
+  const store = ES.store;
+  function shortLabel(label) { return label ? label.split(",").slice(0, 3).join(",").trim() : ""; }
+  function applyHome(h) {
+    $("homeGo").disabled = !h;
+    $("homeLabel").textContent = h ? shortLabel(h.label) : "";
+    if (h && h.label && !$("homeInput").value) $("homeInput").value = shortLabel(h.label);
+  }
+  async function saveHome() {
+    const q = $("homeInput").value.trim();
+    if (!q) { setStatus("Type your home address first, then tap Save.", true); return; }
+    try {
+      setStatus("Finding your home address…");
+      const p = await api.geocode(q, currentViewbox());
+      const home = { lat: p.lat, lng: p.lng, label: p.label, zoom: 16 };
+      store.setHome(home);
+      applyHome(home);
+      map.setView([home.lat, home.lng], 16);
+      setStatus(`Saved home: ${shortLabel(home.label)}`);
+    } catch (err) { setStatus("Couldn't find that address: " + err.message, true); }
   }
   function goHome() {
-    const h = loadHome();
-    if (!h) { setStatus("No home saved yet — centre the map where you like, then “Set as home”.", true); return; }
-    map.setView([h.lat, h.lng], h.zoom || 14);
-    setStatus("Centred on your saved home.");
+    const h = store.getHome();
+    if (!h) { setStatus("No home saved yet — type your address and tap Save.", true); return; }
+    map.setView([h.lat, h.lng], h.zoom || 16);
+    setStatus(`Centred on home${h.label ? ": " + shortLabel(h.label) : ""}.`);
   }
 
   /* ---------- locale: hide Trondheim-only lists when away ---------- */
@@ -67,8 +78,9 @@
 
   // apply saved home (else Trondheim default) before first paint of controls
   (function initView() {
-    const h = loadHome();
-    if (h) map.setView([h.lat, h.lng], h.zoom || 14);
+    const h = store.getHome();
+    if (h) map.setView([h.lat, h.lng], h.zoom || 16);
+    applyHome(h);
     refreshLocale();
   })();
 
@@ -281,7 +293,7 @@
   $("addrEnd").addEventListener("keydown", (e) => { if (e.key === "Enter") routeFromAddresses(); });
 
   $("clear").onclick = () => {
-    state.waypoints = []; ES.layers.marker.clearLayers(); ui.resetResults();
+    state.waypoints = []; state.editingId = null; ES.layers.marker.clearLayers(); ui.resetResults();
     hideTripBanner();
     setStatus("Cleared. Pick your points on the map."); ui.updateGoEnabled();
   };
@@ -290,6 +302,7 @@
     b.onclick = () => {
       setMode(b.dataset.mode);
       hideTripBanner();
+      state.editingId = null;
       state.waypoints = []; ES.layers.marker.clearLayers(); ui.resetResults();
       setStatus(state.mode === "ab" ? "Pick a start and a destination." : "Tap points around the lake (3+).");
       ui.updateGoEnabled();
@@ -402,7 +415,7 @@
 
   async function loadTrip(t) {
     if (state.busy) return;
-    state.busy = true; ui.updateGoEnabled();
+    state.busy = true; state.editingId = null; ui.updateGoEnabled();
     showTripBanner(t.name);
     try {
       setStatus(`Locating “${t.name}”…`);
@@ -432,12 +445,73 @@
     run();
   }
 
+  /* ---------- my trips (saved locally) ---------- */
+  function renderSaved() {
+    ui.renderSavedTrips(store.getTrips(), { onEdit: editTrip, onDelete: deleteSaved });
+  }
+
+  // Edit: load the trip's points & mode onto the map so they can be adjusted,
+  // then re-calculated and re-saved (updating the same entry).
+  function editTrip(t) {
+    if (state.busy) return;
+    setMode(t.mode);
+    state.editingId = t.id;
+    state.waypoints = (t.waypoints || []).map((p) => ({ lat: p.lat, lng: p.lng }));
+    hideTripBanner();
+    ui.resetResults();
+    ui.drawWaypoints();
+    ui.updateGoEnabled();
+    if (state.waypoints.length) map.fitBounds(state.waypoints.map((p) => [p.lat, p.lng]), { padding: [60, 60] });
+    collapseSheet();
+    setStatus(`Editing “${t.name}” — drag-free: tap to add points, tap a point to remove. Then Route & analyse and Save route.`);
+  }
+
+  function deleteSaved(t) {
+    if (!window.confirm(`Delete saved trip “${t.name}”?`)) return;
+    store.deleteTrip(t.id);
+    if (state.editingId === t.id) state.editingId = null;
+    renderSaved();
+    setStatus(`Deleted “${t.name}”.`);
+  }
+
+  // Save the currently-analysed route into My trips (new, or update if editing).
+  function saveCurrentRoute() {
+    if (!state.routes.length) { setStatus("Calculate a route first, then save it.", true); return; }
+    const existing = state.editingId ? store.getTrips().find((t) => t.id === state.editingId) : null;
+    const def = existing ? existing.name : `My ${state.mode === "ab" ? "A→B" : state.mode} route`;
+    const name = (window.prompt("Name this route:", def) || "").trim();
+    if (!name) return;
+    const sel = state.routes[state.selected] || state.routes[0];
+    const trip = {
+      id: state.editingId || ("t" + Date.now()),
+      name,
+      mode: state.mode,
+      waypoints: state.waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
+      path: (sel.pts || []).map((p) => ({ lat: p.lat, lng: p.lng })),
+      stats: { dist: sel.dist, steepDown: sel.steepDown, ascent: sel.ascent, descent: sel.descent, time: sel.time, maxDown: sel.maxDown },
+      createdAt: Date.now(),
+    };
+    if (state.editingId) store.updateTrip(state.editingId, trip); else store.addTrip(trip);
+    state.editingId = null;
+    renderSaved();
+    setStatus(`Saved “${name}” to My trips.`);
+  }
+
+  function exportTrips() {
+    const trips = store.getTrips();
+    if (!trips.length) { setStatus("No saved trips to export yet.", true); return; }
+    store.download("easystride-trips.gpx", store.toGPX(trips), "application/gpx+xml");
+    setStatus(`Exported ${trips.length} trip${trips.length > 1 ? "s" : ""} to easystride-trips.gpx.`);
+  }
+
   /* ---------- location, home, collapsibles, sheet ---------- */
   $("townGo").onclick = goToTown;
   $("townInput").addEventListener("keydown", (e) => { if (e.key === "Enter") goToTown(); });
+  $("homeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") saveHome(); });
   $("homeGo").onclick = goHome;
   $("homeSet").onclick = saveHome;
-  $("homeGo").disabled = !loadHome();
+  $("saveRoute").onclick = saveCurrentRoute;
+  $("exportTrips").onclick = exportTrips;
   $("tripBannerClose").onclick = hideTripBanner;
   $("sheetHandle").onclick = () => $("sidebar").classList.toggle("expanded");
   document.querySelectorAll(".collapse-head").forEach((h) => {
@@ -446,6 +520,7 @@
 
   /* ---------- boot ---------- */
   ui.renderSuggestions(loadTrip);
+  renderSaved();
   describeThreshold(parseInt($("thr").value, 10));
   setMode("ab");
   ui.updateGoEnabled();
