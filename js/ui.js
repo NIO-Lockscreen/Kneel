@@ -11,12 +11,12 @@
     return _cssCache[v] || (_cssCache[v] = getComputedStyle(document.documentElement).getPropertyValue(v).trim());
   }
   function gradeColor(g, thr) {
-    if (g >= 0.02) return getCss("--g-up");
-    if (g > -0.025) return getCss("--g-flat");
+    if (g >= 0.02) return getCss("--g-up");        // uphill — fine
+    if (g > -0.025) return getCss("--g-flat");     // flat — fine
     const down = -g;
-    if (down < thr) return getCss("--g-down1");
-    if (down < thr * 1.6) return getCss("--g-down2");
-    return getCss("--g-down3");
+    if (down < thr) return getCss("--g-flat");        // downhill gentler than your limit — fine
+    if (down < thr * 1.5) return getCss("--g-down2"); // over your limit — watch it
+    return getCss("--g-down3");                        // well over — sore
   }
 
   // ---- formatting ----
@@ -34,7 +34,8 @@
     }
     L.marker([p[0].lat, p[0].lng], { icon: L.divIcon({ className: "", html: '<div class="start-ico"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(decoLayer);
     const ai = Math.min(p.length - 2, Math.max(1, Math.round(p.length * 0.18)));
-    const ang = ES.geo.bearing(p[ai - 1], p[ai + 1]);
+    // bearing is compass degrees (0=N); the ➤ glyph points east at 0°, so offset by −90°
+    const ang = ES.geo.bearing(p[ai - 1], p[ai + 1]) - 90;
     L.marker([p[ai].lat, p[ai].lng], { icon: L.divIcon({ className: "",
       html: `<div class="arrow-ico" style="transform:rotate(${ang}deg)">➤</div>`, iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(decoLayer);
   }
@@ -131,7 +132,8 @@
       if (ES.state.mode === "loop") html = `<div class="num-ico">${i + 1}</div>`;
       else if (ES.state.mode === "compare") html = `<div class="num-ico${i >= 2 ? " t2" : ""}">${cmp[i] || i + 1}</div>`;
       else html = `<div class="num-ico">${i === 0 ? "A" : "B"}</div>`;
-      L.marker([w.lat, w.lng], { icon: L.divIcon({ className: "", html, iconSize: [20, 20], iconAnchor: [10, 10] }), zIndexOffset: 1000 }).addTo(ES.layers.marker);
+      const m = L.marker([w.lat, w.lng], { icon: L.divIcon({ className: "", html, iconSize: [22, 22], iconAnchor: [11, 11] }), zIndexOffset: 1000, title: "Tap to remove this point" }).addTo(ES.layers.marker);
+      m.on("click", (e) => { L.DomEvent.stop(e); if (ES.onWaypointClick) ES.onWaypointClick(i); });
     });
   }
 
