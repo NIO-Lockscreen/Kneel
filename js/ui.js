@@ -126,10 +126,12 @@
 
   function drawWaypoints() {
     ES.layers.marker.clearLayers();
+    const cmp = ["A1", "B1", "A2", "B2"];
     ES.state.waypoints.forEach((w, i) => {
-      const html = (ES.state.mode === "loop")
-        ? `<div class="num-ico">${i + 1}</div>`
-        : `<div class="num-ico">${i === 0 ? "A" : "B"}</div>`;
+      let html;
+      if (ES.state.mode === "loop") html = `<div class="num-ico">${i + 1}</div>`;
+      else if (ES.state.mode === "compare") html = `<div class="num-ico${i >= 2 ? " t2" : ""}">${cmp[i] || i + 1}</div>`;
+      else html = `<div class="num-ico">${i === 0 ? "A" : "B"}</div>`;
       L.marker([w.lat, w.lng], { icon: L.divIcon({ className: "", html, iconSize: [20, 20], iconAnchor: [10, 10] }), zIndexOffset: 1000 }).addTo(ES.layers.marker);
     });
   }
@@ -140,10 +142,99 @@
     drawWaypoints();
   }
 
+  // ---- compare mode: two independent A→B trips ----
+  function drawCompare() {
+    const { route: routeLayer, deco: decoLayer } = ES.layers;
+    routeLayer.clearLayers(); decoLayer.clearLayers();
+    const routes = ES.state.routes, focus = ES.state.selected;
+    // the other trip first, underneath, as a faded dashed line
+    routes.forEach((rt, idx) => {
+      if (idx === focus) return;
+      L.polyline(rt.pts.map((p) => [p.lat, p.lng]),
+        { color: "#7a8a80", weight: 4, opacity: .55, dashArray: "4 6", lineCap: "round" }).addTo(routeLayer);
+    });
+    // focused trip on top, grade-coloured
+    const p = routes[focus].pts, grades = routes[focus].grades;
+    for (let i = 0; i < p.length - 1; i++) {
+      L.polyline([[p[i].lat, p[i].lng], [p[i + 1].lat, p[i + 1].lng]],
+        { color: gradeColor(grades[i], ES.state.thr), weight: 6, opacity: .95, lineCap: "round" }).addTo(routeLayer);
+    }
+    L.marker([p[0].lat, p[0].lng], { icon: L.divIcon({ className: "", html: '<div class="start-ico"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(decoLayer);
+  }
+
+  function cmpRow(label, fmt, a, b, lowerKey) {
+    const aw = lowerKey && a[lowerKey] < b[lowerKey];
+    const bw = lowerKey && b[lowerKey] < a[lowerKey];
+    return `<tr><td>${label}</td>` +
+      `<td class="num${aw ? " win" : ""}">${fmt(a)}</td>` +
+      `<td class="num${bw ? " win" : ""}">${fmt(b)}</td></tr>`;
+  }
+
+  function showCompareReco() {
+    const routes = ES.state.routes;
+    if (routes.length < 2) return;
+    const a = routes[0], b = routes[1];
+    const gentler = a.kneeLoad <= b.kneeLoad ? 0 : 1;
+    const dSteep = Math.round(Math.abs(a.steepDown - b.steepDown));
+    const verdict = dSteep > 5
+      ? `Trip ${gentler + 1} is gentler on the knees — <b>${dSteep} m</b> less steep downhill.`
+      : `Both trips are similarly gentle on the knees.`;
+    const body = $("compareBody");
+    body.innerHTML =
+      `<div class="cmp-verdict">${verdict}</div>` +
+      `<table class="cmp-table"><thead><tr><th></th><th>Trip 1</th><th>Trip 2</th></tr></thead><tbody>` +
+      cmpRow("Steep downhill", (r) => Math.round(r.steepDown) + " m", a, b, "steepDown") +
+      cmpRow("Distance", (r) => fmtM(r.dist), a, b, null) +
+      cmpRow("Total climb ↑", (r) => Math.round(r.ascent) + " m", a, b, null) +
+      cmpRow("Total descent ↓", (r) => Math.round(r.descent) + " m", a, b, "descent") +
+      cmpRow("Est. time", (r) => fmtTime(r.time), a, b, null) +
+      cmpRow("Max down grade", (r) => (r.maxDown * 100).toFixed(0) + "%", a, b, "maxDown") +
+      `</tbody></table>` +
+      `<div class="cmp-focus">` +
+      `<button class="btn${ES.state.selected === 0 ? " on" : ""}" data-focus="0">Show Trip 1</button>` +
+      `<button class="btn${ES.state.selected === 1 ? " on" : ""}" data-focus="1">Show Trip 2</button>` +
+      `</div>` +
+      `<div class="hint" style="margin-top:8px">Solid coloured line = shown trip · dashed grey = the other.</div>`;
+    body.querySelectorAll(".cmp-focus button").forEach((btn) => {
+      btn.onclick = () => { ES.state.selected = parseInt(btn.dataset.focus, 10); renderCompare(); };
+    });
+    $("compare").classList.add("show");
+  }
+
+  function renderCompare() {
+    drawCompare();
+    drawProfile(ES.state.routes[ES.state.selected]);
+    drawWaypoints();
+    showCompareReco();
+  }
+
+  // ---- suggested trips list ----
+  function ratingColor(r) { return getCss(r === "friendly" ? "--g-flat" : r === "moderate" ? "--g-down1" : "--g-down3"); }
+  function ratingLabel(r) { return r === "friendly" ? "Knee-friendly" : r === "moderate" ? "Moderate" : "Avoid ↓"; }
+  function renderSuggestions(onSelect) {
+    const wrap = $("suggestions");
+    if (!wrap || !ES.trips) return;
+    wrap.innerHTML = "";
+    ES.trips.sorted().forEach((t) => {
+      const col = ratingColor(t.rating);
+      const div = document.createElement("div");
+      div.className = "trip trip-" + t.rating;
+      div.style.setProperty("--trip", col);
+      div.innerHTML =
+        `<div class="trip-head"><span class="trip-name">${t.name}</span>` +
+        `<span class="trip-badge" style="background:${col}">${ratingLabel(t.rating)}</span></div>` +
+        `<div class="trip-meta">${t.area} · ${t.dist} · ${t.mode === "loop" ? "loop" : "A→B"}</div>` +
+        `<div class="trip-guide">${t.guide}</div>`;
+      div.onclick = () => onSelect(t);
+      wrap.appendChild(div);
+    });
+  }
+
   function resetResults() {
     ES.state.routes = []; ES.state.selected = 0; ES.state.recommended = 0;
     ES.layers.route.clearLayers(); ES.layers.deco.clearLayers();
     $("reco").classList.remove("show");
+    $("compare").classList.remove("show");
     $("stats").classList.remove("show");
     $("profile").classList.remove("show");
     $("switch").style.display = "none";
@@ -151,10 +242,10 @@
 
   function updateGoEnabled() {
     const n = ES.state.waypoints.length;
-    const ready = ES.state.mode === "ab" ? n >= 2 : n >= 3;
+    const ready = ES.state.mode === "compare" ? n >= 4 : ES.state.mode === "ab" ? n >= 2 : n >= 3;
     $("go").disabled = !ready || ES.state.busy;
     const sg = $("suggest"); if (sg) sg.disabled = ES.state.busy || !ES.state.routes.length;
   }
 
-  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, resetResults, updateGoEnabled };
+  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, resetResults, updateGoEnabled };
 })();

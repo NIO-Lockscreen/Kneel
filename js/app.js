@@ -41,6 +41,11 @@
       if (state.waypoints.length >= 2) { state.waypoints = []; ui.resetResults(); }
       state.waypoints.push(w);
       setStatus(state.waypoints.length < 2 ? "Now tap your destination." : "Ready — tap “Route & analyse”.");
+    } else if (state.mode === "compare") {
+      if (state.waypoints.length >= 4) { state.waypoints = []; ui.resetResults(); }
+      state.waypoints.push(w);
+      const msgs = ["Tap the destination of trip 1.", "Tap the start of trip 2.", "Tap the destination of trip 2.", "Ready — tap “Route & analyse”."];
+      setStatus(msgs[state.waypoints.length - 1] || "Ready — tap “Route & analyse”.");
     } else {
       state.waypoints.push(w);
       setStatus(state.waypoints.length < 3 ? `Add ${3 - state.waypoints.length} more point(s) around the lake.` : "Ready — tap “Route & analyse” to close the loop.");
@@ -62,10 +67,33 @@
     return built;
   }
 
+  // route a single A→B pair and return its gentlest-within-detour option
+  async function routePair(a, b) {
+    let geoms;
+    try { geoms = await api.osrmRoute([a, b], true); }
+    catch (e) { geoms = [[a, b]]; }
+    const built = await buildRoutes(geoms);
+    const routes = built.map((x) => analysis.analyse(x.pts, x.elev, state.thr));
+    return routes[analysis.pickWithinDetour(routes, state.detour)];
+  }
+
   async function run() {
     if (state.busy) return;
     state.busy = true; ui.updateGoEnabled(); ui.resetResults();
     try {
+      if (state.mode === "compare") {
+        setStatus("Finding the first walking route…");
+        const a = await routePair(state.waypoints[0], state.waypoints[1]);
+        setStatus("Finding the second walking route…");
+        const b = await routePair(state.waypoints[2], state.waypoints[3]);
+        state.routes = [a, b];
+        state.recommended = a.kneeLoad <= b.kneeLoad ? 0 : 1;
+        state.selected = state.recommended;
+        ui.renderCompare();
+        setStatus("Done. Solid = shown trip, dashed = the other. Green/blue is easy on the knees; red is steep downhill.");
+        return;
+      }
+
       const wpts = state.mode === "loop" ? state.waypoints.concat([state.waypoints[0]]) : state.waypoints;
       setStatus("Finding walking route…");
       let geoms;
@@ -126,6 +154,12 @@
   /* ---------- suggest a gentler route within the detour budget ---------- */
   function suggest() {
     if (!state.routes.length) return;
+    if (state.mode === "compare") {
+      state.selected = state.recommended;
+      ui.renderCompare();
+      setStatus(`Showing the gentler trip (Trip ${state.recommended + 1}).`);
+      return;
+    }
     if (state.mode === "loop") {
       state.selected = state.recommended = state.selected === 0 ? 1 : 0;
       ui.render();
@@ -149,9 +183,12 @@
     state.mode = mode;
     document.querySelectorAll("#modeSeg button").forEach((x) => x.classList.toggle("on", x.dataset.mode === mode));
     $("addrBlock").style.display = mode === "ab" ? "" : "none";
-    $("modeHint").innerHTML = mode === "ab"
-      ? `<b>Tap a start, then a destination</b> on the map — or type addresses below. I'll find the walking route(s) and pick the one with the least steep descent.`
-      : `<b>Tap points around the lake</b> (3 or more, roughly on the path). I'll route the loop and tell you which <b>direction</b> spares the knees.`;
+    const hints = {
+      ab: `<b>Tap a start, then a destination</b> on the map — or type addresses below. I'll find the walking route(s) and pick the one with the least steep descent.`,
+      loop: `<b>Tap points around the lake</b> (3 or more, roughly on the path). I'll route the loop and tell you which <b>direction</b> spares the knees.`,
+      compare: `<b>Tap 4 points</b>: start &amp; destination of trip 1, then start &amp; destination of trip 2. I'll route both and show which is gentler on the knees.`,
+    };
+    $("modeHint").innerHTML = hints[mode] || hints.ab;
   }
 
   /* ---------- controls ---------- */
@@ -194,6 +231,12 @@
   // Re-score existing routes after a threshold change (no new network calls).
   function rescore() {
     if (!state.routes.length) return;
+    if (state.mode === "compare") {
+      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr));
+      state.recommended = state.routes[0].kneeLoad <= state.routes[1].kneeLoad ? 0 : 1;
+      ui.renderCompare();
+      return;
+    }
     if (state.mode === "loop") {
       const a = state.routes[0], b = state.routes[1];
       const f = analysis.analyse(a.pts, a.elev, state.thr), r = analysis.analyse(b.pts, b.elev, state.thr);
@@ -210,7 +253,21 @@
     c.onclick = () => map.setView([parseFloat(c.dataset.lat), parseFloat(c.dataset.lng)], parseInt(c.dataset.z, 10));
   });
 
+  /* ---------- suggested trips ---------- */
+  function loadTrip(t) {
+    if (state.busy) return;
+    setMode(t.mode);
+    state.waypoints = t.points.map((p) => ({ lat: p.lat, lng: p.lng }));
+    ui.resetResults();
+    ui.drawWaypoints();
+    map.fitBounds(t.points.map((p) => [p.lat, p.lng]), { padding: [50, 50] });
+    ui.updateGoEnabled();
+    setStatus(`Loaded “${t.name}”. ${t.guide}`);
+    run();
+  }
+
   /* ---------- boot ---------- */
+  ui.renderSuggestions(loadTrip);
   setMode("ab");
   ui.updateGoEnabled();
 })();

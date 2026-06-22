@@ -21,7 +21,8 @@
         <div class="eyebrow">Trip type</div>
         <div class="seg" id="modeSeg">
           <button data-mode="ab" class="on">A → B</button>
-          <button data-mode="loop">Loop (around a lake)</button>
+          <button data-mode="loop">Loop</button>
+          <button data-mode="compare">Compare</button>
         </div>
         <div class="hint" id="modeHint">
           <b>Tap a start, then a destination</b> on the map — or type addresses below. I'll find the walking route(s) and pick the one with the least steep descent.
@@ -43,6 +44,12 @@
           <span class="chip" data-lat="63.447" data-lng="10.455" data-z="14">Ladestien (coast)</span>
           <span class="chip" data-lat="63.4305" data-lng="10.3951" data-z="14">City centre</span>
         </div>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow">Suggested trips</div>
+        <div class="hint">Curated Trondheim walks — tap one to load it and run the knee analysis. Sorted <b>gentlest first</b>; red ones are best avoided downhill.</div>
+        <div class="trips" id="suggestions"></div>
       </div>
 
       <div class="block">
@@ -84,6 +91,11 @@
       </div>
 
       <div class="switch" id="switch"></div>
+
+      <div class="compare" id="compare">
+        <div class="eyebrow" style="margin-bottom:6px">Comparison</div>
+        <div id="compareBody"></div>
+      </div>
 
       <div class="stats" id="stats">
         <div class="stat bad"><div class="k">Steep downhill</div><div class="v" id="sSteep">–</div></div>
@@ -130,6 +142,7 @@
 <script src="js/geo.js"></script>
 <script src="js/api.js"></script>
 <script src="js/analysis.js"></script>
+<script src="js/trips.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/app.js"></script>
 </body>
