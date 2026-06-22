@@ -18,6 +18,15 @@
     <div class="scroll">
 
       <div class="block">
+        <div class="eyebrow">Location</div>
+        <div class="hint">EasyStride works anywhere — go to your town, then tap the map or type addresses.</div>
+        <div class="row" style="flex-wrap:nowrap">
+          <input class="addr" id="townInput" type="text" placeholder="Town or city (e.g. Bergen, Norway)" autocomplete="off" value="Trondheim, Norway" />
+          <button class="btn" id="townGo">Go</button>
+        </div>
+      </div>
+
+      <div class="block">
         <div class="eyebrow">Trip type</div>
         <div class="seg" id="modeSeg">
           <button data-mode="ab" class="on">A → B</button>
@@ -36,30 +45,35 @@
         <button class="btn" id="addrGo">Route from addresses</button>
       </div>
 
-      <div class="block">
-        <div class="eyebrow">Jump to</div>
-        <div class="chips" id="jumps">
-          <span class="chip" data-lat="63.404" data-lng="10.358" data-z="14">Bymarka · Theisendammen</span>
-          <span class="chip" data-lat="63.396" data-lng="10.330" data-z="14">Lianvatnet</span>
-          <span class="chip" data-lat="63.447" data-lng="10.455" data-z="14">Ladestien (coast)</span>
-          <span class="chip" data-lat="63.4305" data-lng="10.3951" data-z="14">City centre</span>
+      <div class="block collapsible collapsed" id="jumpsBlock">
+        <button class="collapse-head" type="button"><span class="eyebrow">Jump to · Trondheim</span><span class="chev">▾</span></button>
+        <div class="collapse-body">
+          <div class="chips" id="jumps">
+            <span class="chip" data-lat="63.404" data-lng="10.358" data-z="14">Bymarka · Theisendammen</span>
+            <span class="chip" data-lat="63.396" data-lng="10.330" data-z="14">Lianvatnet</span>
+            <span class="chip" data-lat="63.447" data-lng="10.455" data-z="14">Ladestien (coast)</span>
+            <span class="chip" data-lat="63.4305" data-lng="10.3951" data-z="14">City centre</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="block collapsible" id="suggestBlock">
+        <button class="collapse-head" type="button"><span class="eyebrow">Suggested trips · Trondheim</span><span class="chev">▾</span></button>
+        <div class="collapse-body">
+          <div class="hint">Curated Trondheim walks — tap one to load it and run the knee analysis. Sorted <b>gentlest first</b>; red ones are best avoided downhill.</div>
+          <div class="trips" id="suggestions"></div>
         </div>
       </div>
 
       <div class="block">
-        <div class="eyebrow">Suggested trips</div>
-        <div class="hint">Curated Trondheim walks — tap one to load it and run the knee analysis. Sorted <b>gentlest first</b>; red ones are best avoided downhill.</div>
-        <div class="trips" id="suggestions"></div>
-      </div>
-
-      <div class="block">
-        <div class="eyebrow">Pain threshold</div>
+        <div class="eyebrow">Steepness limit</div>
         <div class="slider-wrap">
           <div class="slider-top">
-            <span class="hint">Downhill steeper than this counts as painful</span>
-            <span class="val" id="thrVal">8%</span>
+            <span class="hint">Downhill steeper than this strains the knees</span>
+            <span class="thr-readout"><svg class="thr-slope" id="thrSlope" viewBox="0 0 40 24" aria-hidden="true"></svg><span class="val" id="thrVal">8%</span></span>
           </div>
           <input type="range" id="thr" min="3" max="15" step="1" value="8" />
+          <div class="hint thr-explain" id="thrExplain"></div>
         </div>
       </div>
 
@@ -133,6 +147,11 @@
 
   <div id="map"></div>
   <div class="map-tip" id="tip" style="display:none"></div>
+  <div class="trip-banner" id="tripBanner" hidden>
+    <span class="trip-banner-dot"></span>
+    <span id="tripBannerName"></span>
+    <button class="trip-banner-x" id="tripBannerClose" aria-label="Dismiss">×</button>
+  </div>
   <button class="float-go" id="floatGo">Route &amp; analyse</button>
 </main>
 
