@@ -7,6 +7,7 @@
 
   const HOME_KEY = "easystride.home";
   const TRIPS_KEY = "easystride.savedTrips";
+  const METRICS_KEY = "easystride.tripMetrics";
 
   function read(key, fallback) {
     try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
@@ -32,6 +33,10 @@
     saveTrips(a); return a;
   }
   function deleteTrip(id) { const a = getTrips().filter((t) => t.id !== id); saveTrips(a); return a; }
+
+  // ---- cached suggested-trip metrics (measured steep-downhill etc.) ----
+  function getMetrics() { const m = read(METRICS_KEY, {}); return (m && typeof m === "object") ? m : {}; }
+  function setMetrics(m) { return write(METRICS_KEY, m); }
 
   // ---- GPX export of every saved trip (waypoints + route track) ----
   function esc(s) {
@@ -63,5 +68,5 @@
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
   }
 
-  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, toGPX, download };
+  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics, toGPX, download };
 })();

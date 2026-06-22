@@ -119,12 +119,12 @@
 
   /* ---------- routing pipeline ---------- */
   // Build & elevation-tag every geometry returned by the router.
-  async function buildRoutes(geoms) {
+  async function buildRoutes(geoms, quiet) {
     const built = [];
     for (const geom of geoms) {
       const total = geom.reduce((a, _, i) => (i ? a + geo.haversine(geom[i - 1], geom[i]) : 0), 0);
       const pts = geo.resample(geom, Math.max(config.sampleSpacing, total / config.maxRoutePoints), config.maxRoutePoints);
-      setStatus("Reading elevation…");
+      if (!quiet) setStatus("Reading elevation…");
       const elev = geo.smooth(await api.fetchElevation(pts), 2);
       built.push({ pts, elev });
     }
@@ -448,6 +448,49 @@
     run();
   }
 
+  /* ---------- data-driven ratings for suggested trips ----------
+   * Route + analyse each suggested loop once (in the background), measure the
+   * gentler direction's steep-downhill metres at a reference threshold, and
+   * cache it. renderSuggestions then colours/sorts by the real numbers instead
+   * of my hand-set guesses. */
+  const REF_THR = 0.08;
+  function tripSig(t) { return (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
+
+  async function tripMetrics(t) {
+    if (!t.waypoints || !t.waypoints.length) return null;
+    let wpts = t.waypoints.slice();
+    if (t.mode !== "ab") wpts = wpts.concat([wpts[0]]);
+    let geoms;
+    try { geoms = await api.osrmRoute(wpts, t.mode === "ab"); }
+    catch (e) { geoms = [wpts]; }
+    const built = await buildRoutes(geoms, true);
+    let best;
+    if (t.mode === "ab") {
+      const routes = built.map((x) => analysis.analyse(x.pts, x.elev, REF_THR));
+      best = routes[analysis.pickWithinDetour(routes, 0.25)];
+    } else {
+      const b0 = built[0];
+      const f = analysis.analyse(b0.pts, b0.elev, REF_THR);
+      const rv = analysis.reverseSeries(b0.pts, b0.elev);
+      const r = analysis.analyse(rv.pts, rv.elev, REF_THR);
+      best = r.kneeLoad < f.kneeLoad ? r : f;
+    }
+    return { steepDown: best.steepDown, dist: best.dist, time: best.time, sig: tripSig(t) };
+  }
+
+  async function analyzeSuggestions() {
+    if ($("suggestBlock").style.display === "none") return; // skip when away from Trondheim
+    const metrics = store.getMetrics();
+    for (const t of ES.trips.all) {
+      const cached = metrics[t.id];
+      if (cached && cached.sig === tripSig(t)) continue;     // already measured for these points
+      try {
+        const m = await tripMetrics(t);
+        if (m) { metrics[t.id] = m; store.setMetrics(metrics); ui.renderSuggestions(loadTrip, metrics); }
+      } catch (e) { /* leave the static rating for this one */ }
+    }
+  }
+
   /* ---------- my trips (saved locally) ---------- */
   function renderSaved() {
     ui.renderSavedTrips(store.getTrips(), { onEdit: editTrip, onDelete: deleteSaved });
@@ -533,9 +576,10 @@
   });
 
   /* ---------- boot ---------- */
-  ui.renderSuggestions(loadTrip);
+  ui.renderSuggestions(loadTrip, store.getMetrics());
   renderSaved();
   describeThreshold(parseInt($("thr").value, 10));
   setMode("ab");
   ui.updateGoEnabled();
+  analyzeSuggestions(); // refine ratings/colours from real data in the background
 })();
