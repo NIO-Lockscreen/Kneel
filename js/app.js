@@ -418,8 +418,11 @@
     state.busy = true; state.editingId = null; ui.updateGoEnabled();
     showTripBanner(t.name);
     try {
-      setStatus(`Locating “${t.name}”…`);
-      if (t.mode === "loop") {
+      setStatus(`Loading “${t.name}”…`);
+      if (t.waypoints && t.waypoints.length) {
+        setMode(t.mode || "loop");
+        state.waypoints = t.waypoints.map((p) => ({ lat: p.lat, lng: p.lng }));
+      } else if (t.mode === "loop") {
         const place = await api.geocode(t.query, TRONDHEIM_VB);
         setMode("loop");
         state.waypoints = loopRing(place, 6);
@@ -504,6 +507,16 @@
     setStatus(`Exported ${trips.length} trip${trips.length > 1 ? "s" : ""} to easystride-trips.gpx.`);
   }
 
+  function clearAllTrips() {
+    const n = store.getTrips().length;
+    if (!n) { setStatus("No saved trips to clear."); return; }
+    if (!window.confirm(`Delete all ${n} saved trip${n > 1 ? "s" : ""}? This can't be undone.`)) return;
+    store.saveTrips([]);
+    state.editingId = null;
+    renderSaved();
+    setStatus("Cleared all saved trips.");
+  }
+
   /* ---------- location, home, collapsibles, sheet ---------- */
   $("townGo").onclick = goToTown;
   $("townInput").addEventListener("keydown", (e) => { if (e.key === "Enter") goToTown(); });
@@ -512,6 +525,7 @@
   $("homeSet").onclick = saveHome;
   $("saveRoute").onclick = saveCurrentRoute;
   $("exportTrips").onclick = exportTrips;
+  $("clearTrips").onclick = clearAllTrips;
   $("tripBannerClose").onclick = hideTripBanner;
   $("sheetHandle").onclick = () => $("sidebar").classList.toggle("expanded");
   document.querySelectorAll(".collapse-head").forEach((h) => {
