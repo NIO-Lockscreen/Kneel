@@ -56,7 +56,7 @@
     const c = map.getCenter();
     const near = geo.haversine({ lat: c.lat, lng: c.lng }, TRD) < 40000; // 40 km
     $("jumpsBlock").style.display = near ? "" : "none";
-    $("suggestBlock").style.display = near ? "" : "none";
+    // suggestBlock stays hidden for now (stored trips need fixing) — don't toggle it
   }
   map.on("moveend", refreshLocale);
 
@@ -319,14 +319,14 @@
       `That's <b>≈${deg}°</b> — about a <b>1&nbsp;m drop every ${run}&nbsp;m</b>, like ${word}. ` +
       `Downhill steeper than this turns <b style="color:var(--g-down3)">orange/red</b>; anything gentler stays green. ` +
       `<i>Set it lower if your knees are sensitive — then more of the route is flagged.</i>`;
-    // slope glyph: a downhill ramp — high on the left, descending to the right
+    // slope glyph: rises left-to-right as the limit steepens
     const H = 24, x0 = 3, x1 = 37, base = H - 3;
     const rise = Math.min(base - 2, (x1 - x0) * (pct / 100) * 2.2); // gently exaggerated for visibility
     const top = base - rise;
     const col = pct <= 7 ? "var(--g-flat)" : pct <= 10 ? "var(--g-down1)" : pct <= 13 ? "var(--g-down2)" : "var(--g-down3)";
     $("thrSlope").innerHTML =
-      `<polygon points="${x0},${top.toFixed(1)} ${x1},${base} ${x0},${base}" fill="${col}" fill-opacity="0.18"/>` +
-      `<line x1="${x0}" y1="${top.toFixed(1)}" x2="${x1}" y2="${base}" stroke="${col}" stroke-width="2" stroke-linecap="round"/>`;
+      `<polygon points="${x0},${base} ${x1},${base} ${x1},${top.toFixed(1)}" fill="${col}" fill-opacity="0.18"/>` +
+      `<line x1="${x0}" y1="${base}" x2="${x1}" y2="${top.toFixed(1)}" stroke="${col}" stroke-width="2" stroke-linecap="round"/>`;
   }
 
   $("detour").oninput = (e) => {
