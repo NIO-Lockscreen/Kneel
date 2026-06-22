@@ -18,7 +18,7 @@
     routes: [],
     selected: 0,
     recommended: 0,
-    thr: 0.03,                 // steepness limit (down-grade fraction); starts at the slider minimum
+    thr: 0.08,                 // steepness limit (down-grade fraction)
     detour: 0.25,              // max acceptable detour vs shortest route (fraction)
     busy: false,
     editingId: null,           // id of the saved trip currently being edited, if any
