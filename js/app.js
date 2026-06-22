@@ -67,7 +67,7 @@
     const c = map.getCenter();
     const near = geo.haversine({ lat: c.lat, lng: c.lng }, TRD) < 40000; // 40 km
     $("jumpsBlock").style.display = near ? "" : "none";
-    // suggestBlock stays hidden for now (stored trips need fixing) — don't toggle it
+    $("suggestBlock").style.display = near ? "" : "none";
   }
   map.on("moveend", refreshLocale);
 
