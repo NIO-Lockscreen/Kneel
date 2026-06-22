@@ -48,7 +48,11 @@
     const j = await r.json();
     if (!j.length) throw new Error('no match for "' + query + '"');
     const hit = j[0];
-    return { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), label: hit.display_name };
+    const bb = hit.boundingbox; // [south, north, west, east] as strings
+    const bbox = (bb && bb.length === 4)
+      ? { south: +bb[0], north: +bb[1], west: +bb[2], east: +bb[3] }
+      : null;
+    return { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), label: hit.display_name, bbox };
   }
 
   ES.api = { fetchElevation, osrmRoute, geocode };
