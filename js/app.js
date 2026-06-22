@@ -314,14 +314,29 @@
   /* ---------- suggested trips (geocoded live for accuracy) ---------- */
   const TRONDHEIM_VB = "10.20,63.46,10.60,63.36"; // west,north,east,south
 
-  // a ring of n points around a centre, radius in metres
-  function ringPoints(center, radiusM, n) {
+  // Loop waypoints traced around a geocoded lake. We size and centre the ring
+  // from the lake's bounding box (so it follows the real shoreline) and place
+  // points just OUTSIDE the water (k>1) so the foot router snaps them onto the
+  // perimeter path rather than across the lake. Falls back to a fixed radius if
+  // no bounding box is available.
+  function loopRing(place, n) {
+    const k = 1.08;
+    let cLat, cLng, halfLat, halfLng;
+    if (place.bbox) {
+      cLat = (place.bbox.south + place.bbox.north) / 2;
+      cLng = (place.bbox.west + place.bbox.east) / 2;
+      halfLat = (place.bbox.north - place.bbox.south) / 2 * k;
+      halfLng = (place.bbox.east - place.bbox.west) / 2 * k;
+    } else {
+      cLat = place.lat; cLng = place.lng;
+      const r = 300;
+      halfLat = r / 111320;
+      halfLng = r / (111320 * Math.cos(cLat * Math.PI / 180));
+    }
     const pts = [];
-    const dLatPerM = 1 / 111320;
-    const dLngPerM = 1 / (111320 * Math.cos(center.lat * Math.PI / 180));
     for (let i = 0; i < n; i++) {
       const a = (i / n) * 2 * Math.PI;
-      pts.push({ lat: center.lat + radiusM * dLatPerM * Math.cos(a), lng: center.lng + radiusM * dLngPerM * Math.sin(a) });
+      pts.push({ lat: cLat + halfLat * Math.cos(a), lng: cLng + halfLng * Math.sin(a) });
     }
     return pts;
   }
@@ -339,9 +354,9 @@
     try {
       setStatus(`Locating “${t.name}”…`);
       if (t.mode === "loop") {
-        const center = await api.geocode(t.query, TRONDHEIM_VB);
+        const place = await api.geocode(t.query, TRONDHEIM_VB);
         setMode("loop");
-        state.waypoints = ringPoints(center, t.radius, 5);
+        state.waypoints = loopRing(place, 6);
       } else {
         const [from, to] = await Promise.all([
           api.geocode(t.from, TRONDHEIM_VB),

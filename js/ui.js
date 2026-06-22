@@ -91,14 +91,13 @@
     if (ES.state.mode === "loop") {
       const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
       const saved = Math.round(other.steepDown - chosen.steepDown);
-      const dirWord = best === 0 ? "as you marked it" : "in reverse";
       verdict.innerHTML = saved > 3
-        ? `Walk the loop <span class="arrow">${best === 0 ? "▶" : "◀"}</span> <b>${dirWord}</b>.`
-        : `This loop is gentle <b>either way</b>.`;
+        ? `Follow the <span class="arrow">➤</span> <b>recommended direction</b> around the loop.`
+        : `This loop is gentle <b>either direction</b>.`;
       delta.innerHTML =
-        `<b>${dirWord}</b> · steep downhill <b>${Math.round(chosen.steepDown)} m</b><br>` +
-        `other way · steep downhill <b>${Math.round(other.steepDown)} m</b>` +
-        (saved > 3 ? `<br>→ you avoid <b>${saved} m</b> of sore descent by climbing the steep side instead.` : ``);
+        `Recommended direction · steep downhill <b>${Math.round(chosen.steepDown)} m</b><br>` +
+        `Reverse direction · steep downhill <b>${Math.round(other.steepDown)} m</b>` +
+        (saved > 3 ? `<br>→ the recommended way takes the steep side <b>uphill</b>, saving <b>${saved} m</b> of jarring descent. Same loop and same points — just follow the arrow.` : ``);
       reco.classList.add("show");
     } else {
       const chosen = routes[best];
@@ -258,15 +257,15 @@
     const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
     const saved = Math.round(other.steepDown - chosen.steepDown);
     const gentleEither = saved <= 3;
-    const dir = best === 0 ? "in the direction you marked it" : "in the reverse direction";
-    const title = gentleEither ? "This loop is gentle either way" : `Walk it ${dir}`;
+    const title = gentleEither ? "This loop is gentle either direction" : "Recommended walking direction";
     const lead = gentleEither
-      ? `There's little difference between the two directions here — your knees won't mind which way you go, so pick the views you prefer.`
-      : `I suggest walking this loop <b>${dir}</b>. That takes the steep parts <b>uphill</b> and lets you descend the gentler side — about <b>${saved} m</b> less steep downhill than the other way, which is what spares your knees.`;
+      ? `It's about the same both ways here, so walk it whichever direction you prefer — your points and the path don't change.`
+      : `The <b>recommended direction</b> (shown by the arrow on the map) is gentler than the reverse — about <b>${saved} m</b> less steep downhill, because it takes the steep side <b>uphill</b>. You still walk the same loop through the same numbered points; only the direction of travel changes.`;
     const rows =
+      `<tr><td>Steep downhill · recommended</td><td class="num win">${Math.round(chosen.steepDown)} m</td></tr>` +
+      `<tr><td>Steep downhill · reverse</td><td class="num">${Math.round(other.steepDown)} m</td></tr>` +
       `<tr><td>Distance</td><td class="num">${fmtM(chosen.dist)}</td></tr>` +
       `<tr><td>Est. time</td><td class="num">${fmtTime(chosen.time)}</td></tr>` +
-      `<tr><td>Steep downhill</td><td class="num">${Math.round(chosen.steepDown)} m</td></tr>` +
       `<tr><td>Total descent ↓</td><td class="num">${Math.round(chosen.descent)} m</td></tr>` +
       `<tr><td>Max down grade</td><td class="num">${(chosen.maxDown * 100).toFixed(0)}%</td></tr>`;
     return `<div class="modal-title">${title}</div><div class="modal-lead">${lead}</div>` +
