@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>EasyStride — knee-friendly walks in Trondheim</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<header>
+  <div class="wordmark">EasyStride<span class="dot"></span></div>
+  <div class="tagline">Knee-friendly walks in Trondheim — finds the route with the least <b>steep downhill</b>.</div>
+</header>
+
+<main>
+  <aside>
+    <div class="scroll">
+
+      <div class="block">
+        <div class="eyebrow">Trip type</div>
+        <div class="seg" id="modeSeg">
+          <button data-mode="ab" class="on">A → B</button>
+          <button data-mode="loop">Loop (around a lake)</button>
+        </div>
+        <div class="hint" id="modeHint">
+          <b>Tap a start, then a destination</b> on the map — or type addresses below. I'll find the walking route(s) and pick the one with the least steep descent.
+        </div>
+      </div>
+
+      <div class="block" id="addrBlock">
+        <div class="eyebrow">Or type addresses</div>
+        <input class="addr" id="addrStart" type="text" placeholder="Start address (e.g. Munkegata 1, Trondheim)" autocomplete="off" />
+        <input class="addr" id="addrEnd" type="text" placeholder="Destination address" autocomplete="off" />
+        <button class="btn" id="addrGo">Route from addresses</button>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow">Jump to</div>
+        <div class="chips" id="jumps">
+          <span class="chip" data-lat="63.404" data-lng="10.358" data-z="14">Bymarka · Theisendammen</span>
+          <span class="chip" data-lat="63.396" data-lng="10.330" data-z="14">Lianvatnet</span>
+          <span class="chip" data-lat="63.447" data-lng="10.455" data-z="14">Ladestien (coast)</span>
+          <span class="chip" data-lat="63.4305" data-lng="10.3951" data-z="14">City centre</span>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow">Pain threshold</div>
+        <div class="slider-wrap">
+          <div class="slider-top">
+            <span class="hint">Downhill steeper than this counts as painful</span>
+            <span class="val" id="thrVal">8%</span>
+          </div>
+          <input type="range" id="thr" min="3" max="15" step="1" value="8" />
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow">Acceptable detour</div>
+        <div class="slider-wrap">
+          <div class="slider-top">
+            <span class="hint">How much longer than the shortest route is OK</span>
+            <span class="val" id="detourVal">25%</span>
+          </div>
+          <input type="range" id="detour" min="0" max="100" step="5" value="25" />
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="row">
+          <button class="btn primary" id="go" disabled>Route &amp; analyse</button>
+          <button class="btn ghost" id="clear">Clear</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="suggest" disabled>Suggest a gentler route ↺</button>
+        </div>
+        <div class="status" id="status">Pick your points on the map to begin.</div>
+      </div>
+
+      <div class="reco" id="reco">
+        <div class="verdict" id="verdict"></div>
+        <div class="delta" id="delta"></div>
+      </div>
+
+      <div class="switch" id="switch"></div>
+
+      <div class="stats" id="stats">
+        <div class="stat bad"><div class="k">Steep downhill</div><div class="v" id="sSteep">–</div></div>
+        <div class="stat"><div class="k">Distance</div><div class="v" id="sDist">–</div></div>
+        <div class="stat"><div class="k">Total climb ↑</div><div class="v" id="sUp">–</div></div>
+        <div class="stat"><div class="k">Total descent ↓</div><div class="v" id="sDown">–</div></div>
+        <div class="stat"><div class="k">Est. time</div><div class="v" id="sTime">–</div></div>
+        <div class="stat"><div class="k">Max down grade</div><div class="v" id="sMax">–</div></div>
+      </div>
+
+      <div class="profile" id="profile">
+        <div class="eyebrow" style="margin-bottom:6px">Elevation profile</div>
+        <svg id="prof" viewBox="0 0 360 130" preserveAspectRatio="none"></svg>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow">How to read the map</div>
+        <div class="legend">
+          <div class="li"><span class="sw" style="background:var(--g-up)"></span>Uphill — fine</div>
+          <div class="li"><span class="sw" style="background:var(--g-flat)"></span>Flat — fine</div>
+          <div class="li"><span class="sw" style="background:var(--g-down1)"></span>Gentle down</div>
+          <div class="li"><span class="sw" style="background:var(--g-down2)"></span>Down — watch it</div>
+          <div class="li"><span class="sw" style="background:var(--g-down3)"></span>Steep down — sore</div>
+          <div class="li"><span class="num-ico" style="width:16px;height:16px;font-size:9px">2</span>Your waypoints</div>
+        </div>
+      </div>
+
+      <div class="credit">
+        Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Open-Meteo DEM (~30 m).
+        Planning aid only — not medical advice. Grades from public elevation data can be a little noisy on short segments.
+      </div>
+
+    </div>
+  </aside>
+
+  <div id="map"></div>
+  <div class="map-tip" id="tip" style="display:none"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- App modules: plain scripts (no bundler) so they run from file:// locally and on Vercel.
+     Load order matters — each attaches to the window.EasyStride namespace. -->
+<script src="js/core.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/api.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
