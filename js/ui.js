@@ -212,33 +212,35 @@
   // ---- suggested trips list ----
   function ratingColor(r) { return getCss(r === "friendly" ? "--g-flat" : r === "moderate" ? "--g-down1" : "--g-down3"); }
   function ratingLabel(r) { return r === "friendly" ? "Knee-friendly" : r === "moderate" ? "Moderate" : "Avoid ↓"; }
-  // Derive the rating from measured steep-downhill metres when we have them, so
-  // colour/label/order always agree with the analysis; fall back to the static
-  // hint until the metric has been computed.
-  function tripRating(t, metrics) {
-    const m = metrics && metrics[t.id];
-    if (m && typeof m.steepDown === "number") {
-      return m.steepDown < 50 ? "friendly" : m.steepDown < 150 ? "moderate" : "avoid";
-    }
-    return t.rating || "moderate";
+  function steepFromSegs(down, thr) { let s = 0; for (const seg of down) if (seg[0] > thr) s += seg[1]; return s; }
+  // Bands scale with the threshold (calibrated at 8%) so a loop's rating stays
+  // roughly stable as the slider moves — only the displayed metres change.
+  function ratingFromSteep(steep, thr) {
+    const f = 0.08 / (thr || 0.08);
+    return steep < 50 * f ? "friendly" : steep < 150 * f ? "moderate" : "avoid";
   }
-  function renderSuggestions(onSelect, metrics) {
+  // Rating/colour/order follow the measured steep-downhill metres AT THE CURRENT
+  // threshold (recomputed from cached segments), so the cards track the slider.
+  function renderSuggestions(onSelect, metrics, thr) {
     const wrap = $("suggestions");
     if (!wrap || !ES.trips) return;
     metrics = metrics || {};
+    thr = typeof thr === "number" ? thr : ES.state.thr;
+    const steepOf = (t) => { const m = metrics[t.id]; return (m && m.down) ? steepFromSegs(m.down, thr) : null; };
     const list = ES.trips.all.slice().sort((a, b) => {
-      const ma = metrics[a.id], mb = metrics[b.id];
-      if (ma && mb) return ma.steepDown - mb.steepDown;   // least steep downhill first
-      if (ma) return -1; if (mb) return 1;
+      const sa = steepOf(a), sb = steepOf(b);
+      if (sa != null && sb != null) return sa - sb;          // least steep downhill first
+      if (sa != null) return -1; if (sb != null) return 1;
       return ES.trips.RANK[a.rating] - ES.trips.RANK[b.rating];
     });
     wrap.innerHTML = "";
     list.forEach((t) => {
       const m = metrics[t.id];
-      const rating = tripRating(t, metrics);
+      const steep = steepOf(t);
+      const rating = steep != null ? ratingFromSteep(steep, thr) : (t.rating || "moderate");
       const col = ratingColor(rating);
-      const distLabel = m ? fmtM(m.dist) : t.dist;
-      const steepLabel = m ? `${Math.round(m.steepDown)} m steep ↓` : (t.mode === "loop" ? "loop" : "A→B");
+      const distLabel = (m && m.dist) ? fmtM(m.dist) : t.dist;
+      const steepLabel = steep != null ? `${Math.round(steep)} m steep ↓` : (t.mode === "loop" ? "loop" : "A→B");
       const div = document.createElement("div");
       div.className = "trip trip-" + rating;
       div.style.setProperty("--trip", col);

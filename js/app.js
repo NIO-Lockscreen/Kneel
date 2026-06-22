@@ -315,6 +315,7 @@
     $("thrVal").textContent = pct + "%";
     describeThreshold(pct);
     rescore();
+    ui.renderSuggestions(loadTrip, store.getMetrics(), state.thr); // cards track the slider
   };
 
   // Explain the steepness limit in plain terms: degrees, a "1 m drop every N m"
@@ -475,7 +476,14 @@
       const r = analysis.analyse(rv.pts, rv.elev, REF_THR);
       best = r.kneeLoad < f.kneeLoad ? r : f;
     }
-    return { steepDown: best.steepDown, dist: best.dist, time: best.time, sig: tripSig(t) };
+    // cache the gentler direction's downhill segments [downGrade, lengthM] so
+    // steep-downhill can be recomputed at any threshold without re-fetching.
+    const down = [];
+    for (let i = 0; i < best.grades.length; i++) {
+      const g = best.grades[i];
+      if (g < 0) down.push([+(-g).toFixed(4), +(best.cum[i + 1] - best.cum[i]).toFixed(1)]);
+    }
+    return { sig: tripSig(t), dist: best.dist, time: best.time, down };
   }
 
   async function analyzeSuggestions() {
@@ -483,10 +491,10 @@
     const metrics = store.getMetrics();
     for (const t of ES.trips.all) {
       const cached = metrics[t.id];
-      if (cached && cached.sig === tripSig(t)) continue;     // already measured for these points
+      if (cached && cached.sig === tripSig(t) && cached.down) continue; // already measured
       try {
         const m = await tripMetrics(t);
-        if (m) { metrics[t.id] = m; store.setMetrics(metrics); ui.renderSuggestions(loadTrip, metrics); }
+        if (m) { metrics[t.id] = m; store.setMetrics(metrics); ui.renderSuggestions(loadTrip, metrics, state.thr); }
       } catch (e) { /* leave the static rating for this one */ }
     }
   }
@@ -576,7 +584,7 @@
   });
 
   /* ---------- boot ---------- */
-  ui.renderSuggestions(loadTrip, store.getMetrics());
+  ui.renderSuggestions(loadTrip, store.getMetrics(), state.thr);
   renderSaved();
   describeThreshold(parseInt($("thr").value, 10));
   setMode("ab");
