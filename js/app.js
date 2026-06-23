@@ -320,6 +320,7 @@
     state.thr = pct / 100;
     $("thrVal").textContent = pct + "%";
     describeThreshold(pct);
+    store.setThreshold(pct);
     rescore();
   };
 
@@ -578,7 +579,14 @@
   /* ---------- boot ---------- */
   ui.renderSuggestions(loadTrip, store.getMetrics());
   renderSaved();
-  describeThreshold(parseInt($("thr").value, 10));
+  // restore the steepness limit saved on a previous visit (else the HTML default)
+  (function restoreThreshold() {
+    const pct = store.getThreshold(parseInt($("thr").value, 10));
+    $("thr").value = pct;
+    state.thr = pct / 100;
+    $("thrVal").textContent = pct + "%";
+    describeThreshold(pct);
+  })();
   setMode("ab");
   ui.updateGoEnabled();
   analyzeSuggestions(); // refine ratings/colours from real data in the background
