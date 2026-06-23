@@ -131,7 +131,7 @@
       let html;
       if (ES.state.mode === "loop") html = `<div class="num-ico">${i + 1}</div>`;
       else if (ES.state.mode === "compare") html = `<div class="num-ico${i >= 2 ? " t2" : ""}">${cmp[i] || i + 1}</div>`;
-      else html = `<div class="num-ico">${i === 0 ? "A" : "B"}</div>`;
+      else html = `<div class="num-ico">${i < 26 ? String.fromCharCode(65 + i) : i + 1}</div>`;
       const m = L.marker([w.lat, w.lng], { icon: L.divIcon({ className: "", html, iconSize: [22, 22], iconAnchor: [11, 11] }), zIndexOffset: 1000, title: "Tap to remove this point" }).addTo(ES.layers.marker);
       m.on("click", (e) => { L.DomEvent.stop(e); if (ES.onWaypointClick) ES.onWaypointClick(i); });
     });
