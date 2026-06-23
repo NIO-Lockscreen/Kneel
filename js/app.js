@@ -57,8 +57,11 @@
   function goHome() {
     const h = store.getHome();
     if (!h) { setStatus("No home saved yet — type your address and tap Save.", true); return; }
+    if (state.busy) return;
     map.setView([h.lat, h.lng], h.zoom || 16);
-    setStatus(`Centred on home${h.label ? ": " + shortLabel(h.label) : ""}.`);
+    hideTripBanner();
+    collapseSheet();
+    addWaypoint({ lat: h.lat, lng: h.lng });
   }
 
   /* ---------- locale: hide Trondheim-only lists when away ---------- */
@@ -96,11 +99,7 @@
     setStatus(state.waypoints.length ? "Removed that point. Tap the map to add another." : "Cleared. Tap the map to begin.");
   };
 
-  map.on("click", (e) => {
-    if (state.busy) return;
-    hideTripBanner();
-    collapseSheet();
-    const w = { lat: e.latlng.lat, lng: e.latlng.lng };
+  function addWaypoint(w) {
     if (state.mode === "ab") {
       if (state.waypoints.length >= 2) { state.waypoints = []; ui.resetResults(); }
       state.waypoints.push(w);
@@ -115,6 +114,13 @@
       setStatus(state.waypoints.length < 3 ? `Add ${3 - state.waypoints.length} more point(s) around the lake.` : "Ready — tap “Route & analyse” to close the loop.");
     }
     ui.drawWaypoints(); ui.updateGoEnabled();
+  }
+
+  map.on("click", (e) => {
+    if (state.busy) return;
+    hideTripBanner();
+    collapseSheet();
+    addWaypoint({ lat: e.latlng.lat, lng: e.latlng.lng });
   });
 
   /* ---------- routing pipeline ---------- */
