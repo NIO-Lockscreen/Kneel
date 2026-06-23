@@ -1,6 +1,5 @@
-/* EasyStride — local persistence (home + saved trips) and GPX export.
- * Everything lives in the browser's localStorage; nothing leaves the device
- * until the user explicitly exports. */
+/* EasyStride — local persistence (home + saved trips).
+ * Everything lives in the browser's localStorage; nothing leaves the device. */
 ;(function () {
   "use strict";
   const ES = (window.EasyStride = window.EasyStride || {});
@@ -38,35 +37,5 @@
   function getMetrics() { const m = read(METRICS_KEY, {}); return (m && typeof m === "object") ? m : {}; }
   function setMetrics(m) { return write(METRICS_KEY, m); }
 
-  // ---- GPX export of every saved trip (waypoints + route track) ----
-  function esc(s) {
-    return String(s).replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
-  }
-  function toGPX(trips) {
-    let s = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<gpx version="1.1" creator="EasyStride" xmlns="http://www.topografix.com/GPX/1/1">\n`;
-    trips.forEach((t) => {
-      (t.waypoints || []).forEach((w, i) => {
-        s += `  <wpt lat="${(+w.lat).toFixed(6)}" lon="${(+w.lng).toFixed(6)}"><name>${esc(t.name)} · ${i + 1}</name></wpt>\n`;
-      });
-      const path = (t.path && t.path.length) ? t.path : (t.waypoints || []);
-      if (path.length) {
-        s += `  <trk><name>${esc(t.name)}</name><trkseg>\n`;
-        path.forEach((p) => { s += `    <trkpt lat="${(+p.lat).toFixed(6)}" lon="${(+p.lng).toFixed(6)}"></trkpt>\n`; });
-        s += `  </trkseg></trk>\n`;
-      }
-    });
-    return s + `</gpx>\n`;
-  }
-
-  function download(filename, text, type) {
-    const blob = new Blob([text], { type: type || "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
-  }
-
-  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics, toGPX, download };
+  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics };
 })();

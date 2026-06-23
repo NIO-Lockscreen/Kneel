@@ -101,9 +101,9 @@
 
   function addWaypoint(w) {
     if (state.mode === "ab") {
-      if (state.waypoints.length >= 2) { state.waypoints = []; ui.resetResults(); }
+      if (state.routes.length) { state.waypoints = []; ui.resetResults(); }
       state.waypoints.push(w);
-      setStatus(state.waypoints.length < 2 ? "Now tap your destination." : "Ready — tap “Route & analyse”.");
+      setStatus(state.waypoints.length < 2 ? "Now tap your destination." : "Ready — tap “Route & analyse”, or tap again to add a stop along the way.");
     } else if (state.mode === "compare") {
       if (state.waypoints.length >= 4) { state.waypoints = []; ui.resetResults(); }
       state.waypoints.push(w);
@@ -499,7 +499,9 @@
 
   /* ---------- my trips (saved locally) ---------- */
   function renderSaved() {
-    ui.renderSavedTrips(store.getTrips(), { onEdit: editTrip, onDelete: deleteSaved });
+    const trips = store.getTrips();
+    $("tripsBlock").style.display = trips.length ? "" : "none";
+    ui.renderSavedTrips(trips, { onEdit: editTrip, onDelete: deleteSaved });
   }
 
   // Edit: load the trip's points & mode onto the map so they can be adjusted,
@@ -549,13 +551,6 @@
     setStatus(`Saved “${name}” to My trips.`);
   }
 
-  function exportTrips() {
-    const trips = store.getTrips();
-    if (!trips.length) { setStatus("No saved trips to export yet.", true); return; }
-    store.download("easystride-trips.gpx", store.toGPX(trips), "application/gpx+xml");
-    setStatus(`Exported ${trips.length} trip${trips.length > 1 ? "s" : ""} to easystride-trips.gpx.`);
-  }
-
   function clearAllTrips() {
     const n = store.getTrips().length;
     if (!n) { setStatus("No saved trips to clear."); return; }
@@ -573,7 +568,6 @@
   $("homeGo").onclick = goHome;
   $("homeSet").onclick = saveHome;
   $("saveRoute").onclick = saveCurrentRoute;
-  $("exportTrips").onclick = exportTrips;
   $("clearTrips").onclick = clearAllTrips;
   $("tripBannerClose").onclick = hideTripBanner;
   $("sheetHandle").onclick = () => $("sidebar").classList.toggle("expanded");
