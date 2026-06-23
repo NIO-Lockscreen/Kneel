@@ -7,6 +7,7 @@
   const HOME_KEY = "easystride.home";
   const TRIPS_KEY = "easystride.savedTrips";
   const METRICS_KEY = "easystride.tripMetrics";
+  const THRESHOLD_KEY = "easystride.steepnessPct";
 
   function read(key, fallback) {
     try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
@@ -37,5 +38,9 @@
   function getMetrics() { const m = read(METRICS_KEY, {}); return (m && typeof m === "object") ? m : {}; }
   function setMetrics(m) { return write(METRICS_KEY, m); }
 
-  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics };
+  // ---- steepness limit (percent integer, persisted across visits) ----
+  function getThreshold(fallback) { const v = read(THRESHOLD_KEY, null); return Number.isFinite(v) ? v : fallback; }
+  function setThreshold(pct) { return write(THRESHOLD_KEY, pct); }
+
+  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics, getThreshold, setThreshold };
 })();
