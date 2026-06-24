@@ -37,7 +37,7 @@
   const store = ES.store;
   function shortLabel(label) { return label ? label.split(",").slice(0, 3).join(",").trim() : ""; }
   function applyHome(h) {
-    $("homeGo").disabled = !h;
+    $("homeGo").style.display = h ? "" : "none";
     $("homeLabel").textContent = h ? shortLabel(h.label) : "";
     if (h && h.label && !$("homeInput").value) $("homeInput").value = shortLabel(h.label);
   }
