@@ -178,6 +178,13 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .float-go.show{display:inline-flex;animation:floatpop .18s ease-out}
 .float-go:hover{filter:brightness(1.06)}
 @keyframes floatpop{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+/* floating "waypoint on my location" — phone only, shown when no points placed */
+.float-loc{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:600;
+  display:none;align-items:center;gap:8px;
+  font-family:var(--font-ui);font-weight:700;font-size:15px;
+  background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:13px 24px;cursor:pointer;
+  box-shadow:0 6px 22px rgba(0,0,0,.30)}
+.float-loc:hover{filter:brightness(.98)}
 /* results modal */
 .modal{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;
   background:rgba(31,42,36,.45);padding:18px}
@@ -230,6 +237,10 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   input[type=range]{height:30px}
 
   .float-go{bottom:calc(64px + env(safe-area-inset-bottom));z-index:760;padding:14px 26px;font-size:16px}
+  /* the in-menu button is replaced by the floating one on phones */
+  #locHere{display:none}
+  .float-loc.show{display:inline-flex;animation:floatpop .18s ease-out;
+    bottom:calc(64px + env(safe-area-inset-bottom));z-index:760;padding:14px 26px;font-size:16px}
   .trip-banner{top:8px;font-size:13px;max-width:90%}
 
   /* results modal docks to the bottom like a sheet */

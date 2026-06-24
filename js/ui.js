@@ -299,6 +299,9 @@
     const sr = $("saveRoute"); if (sr) sr.disabled = ES.state.busy || !ES.state.routes.length;
     const fg = $("floatGo");
     if (fg) fg.classList.toggle("show", ready && !ES.state.busy && !ES.state.routes.length);
+    // phone-only "waypoint on my location": offer it before any point is placed
+    const fl = $("floatLoc");
+    if (fl) fl.classList.toggle("show", !n && !ES.state.busy);
   }
 
   // ---- results modal ----

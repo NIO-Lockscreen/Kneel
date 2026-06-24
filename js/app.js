@@ -64,6 +64,24 @@
     addWaypoint({ lat: h.lat, lng: h.lng });
   }
 
+  // Drop a waypoint at the device's current GPS position to start planning here.
+  function waypointHere() {
+    if (state.busy) return;
+    if (!navigator.geolocation) { setStatus("Location isn't available on this device.", true); return; }
+    setStatus("Finding your location…");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const w = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        hideTripBanner();
+        collapseSheet();
+        map.setView([w.lat, w.lng], 16);
+        addWaypoint(w);
+      },
+      (err) => { setStatus("Couldn't get your location: " + err.message, true); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  }
+
   /* ---------- locale: hide Trondheim-only lists when away ---------- */
   const TRD = { lat: 63.413, lng: 10.38 };
   function refreshLocale() {
@@ -568,6 +586,8 @@
   $("homeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") saveHome(); });
   $("homeGo").onclick = goHome;
   $("homeSet").onclick = saveHome;
+  $("locHere").onclick = waypointHere;
+  $("floatLoc").onclick = waypointHere;
   $("saveRoute").onclick = saveCurrentRoute;
   $("clearTrips").onclick = clearAllTrips;
   $("tripBannerClose").onclick = hideTripBanner;
