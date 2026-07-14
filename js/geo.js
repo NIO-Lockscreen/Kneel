@@ -44,6 +44,49 @@
     return out;
   }
 
+  // destination point: start at p, walk `dist` metres on compass bearing `brg`
+  function offset(p, brg, dist) {
+    const δ = dist / R, θ = rad(brg);
+    const φ1 = rad(p.lat), λ1 = rad(p.lng);
+    const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ));
+    const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
+    return { lat: φ2 * 180 / Math.PI, lng: ((λ2 * 180 / Math.PI + 540) % 360) - 180 };
+  }
+
+  function pathLength(line) {
+    let t = 0;
+    for (let i = 1; i < line.length; i++) t += haversine(line[i - 1], line[i]);
+    return t;
+  }
+
+  // point at fraction f (0..1) of the line's length
+  function pointAt(line, f) {
+    const total = pathLength(line);
+    let target = total * f, acc = 0;
+    for (let i = 0; i < line.length - 1; i++) {
+      const d = haversine(line[i], line[i + 1]);
+      if (acc + d >= target) {
+        const t = d ? (target - acc) / d : 0;
+        return { lat: line[i].lat + (line[i + 1].lat - line[i].lat) * t,
+                 lng: line[i].lng + (line[i + 1].lng - line[i].lng) * t };
+      }
+      acc += d;
+    }
+    return line[line.length - 1];
+  }
+
+  // do two geometries describe essentially the same walk? (similar length and
+  // close together at the ¼, ½ and ¾ marks)
+  function sameGeometry(a, b) {
+    const la = pathLength(a), lb = pathLength(b);
+    if (Math.abs(la - lb) > Math.max(60, 0.03 * Math.min(la, lb))) return false;
+    for (const f of [0.25, 0.5, 0.75]) {
+      if (haversine(pointAt(a, f), pointAt(b, f)) > 80) return false;
+    }
+    return true;
+  }
+
   // moving-average smoothing, window radius w
   function smooth(arr, w) {
     if (arr.length < 3) return arr.slice();
@@ -56,5 +99,5 @@
     return out;
   }
 
-  ES.geo = { R, rad, haversine, bearing, resample, smooth };
+  ES.geo = { R, rad, haversine, bearing, resample, smooth, offset, pathLength, pointAt, sameGeometry };
 })();

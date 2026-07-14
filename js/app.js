@@ -148,17 +148,48 @@
     for (const geom of geoms) {
       const total = geom.reduce((a, _, i) => (i ? a + geo.haversine(geom[i - 1], geom[i]) : 0), 0);
       const pts = geo.resample(geom, Math.max(config.sampleSpacing, total / config.maxRoutePoints), config.maxRoutePoints);
-      if (!quiet) setStatus("Reading elevation…");
+      if (!quiet) setStatus(geoms.length > 1 ? `Reading elevation… (route ${built.length + 1}/${geoms.length})` : "Reading elevation…");
       const elev = geo.smooth(await api.fetchElevation(pts), 2);
       built.push({ pts, elev });
     }
     return built;
   }
 
+  // Extra A→B candidates: route through a via point pushed sideways from the
+  // midpoint, one per side. This finds real detours (the far side of a hill,
+  // the other bank of a stream) even when the router itself offers no
+  // alternatives — which it often doesn't on the foot network.
+  async function viaCandidates(a, b, have, quiet) {
+    const d = geo.haversine(a, b);
+    if (d < 500) return []; // too short for a detour to matter
+    const br = geo.bearing(a, b);
+    const mid = { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
+    const out = [];
+    for (const side of [90, -90]) {
+      try {
+        if (!quiet) setStatus("Looking for gentler detours…");
+        const via = geo.offset(mid, br + side, d * 0.18);
+        const g = (await api.osrmRoute([a, via, b], false))[0];
+        if (!have.concat(out).some((h) => geo.sameGeometry(h, g))) out.push(g);
+      } catch (e) { /* no walkable path on that side — skip it */ }
+    }
+    return out;
+  }
+
+  // All candidate geometries for one A→B pair: the router's alternatives plus
+  // via-point detours, minus anything too long to ever fit the detour budget.
+  async function abGeometries(a, b, quiet) {
+    let geoms = await api.osrmRoute([a, b], true);
+    geoms = geoms.concat(await viaCandidates(a, b, geoms, quiet));
+    const lens = geoms.map(geo.pathLength);
+    const cap = Math.min(...lens) * (1 + state.detour + 0.10);
+    return geoms.filter((g, i) => i === 0 || lens[i] <= cap); // keep the primary regardless
+  }
+
   // route a single A→B pair and return its gentlest-within-detour option
   async function routePair(a, b) {
     let geoms;
-    try { geoms = await api.osrmRoute([a, b], true); }
+    try { geoms = await abGeometries(a, b); }
     catch (e) { geoms = [[a, b]]; }
     const built = await buildRoutes(geoms);
     const routes = built.map((x) => analysis.analyse(x.pts, x.elev, state.thr));
@@ -187,7 +218,9 @@
       setStatus("Finding walking route…");
       let geoms;
       try {
-        geoms = await api.osrmRoute(wpts, state.mode === "ab");
+        geoms = state.mode === "ab" && wpts.length === 2
+          ? await abGeometries(wpts[0], wpts[1])          // alternatives + via detours
+          : await api.osrmRoute(wpts, false);             // fixed via points: one geometry
       } catch (routeErr) {
         setStatus("Routing service unreachable — using straight-line estimate.", true);
         geoms = [wpts.slice()];
@@ -196,8 +229,7 @@
 
       if (state.mode === "loop") {
         const f = analysis.analyse(built[0].pts, built[0].elev, state.thr);
-        const rv = analysis.reverseSeries(built[0].pts, built[0].elev);
-        const r = analysis.analyse(rv.pts, rv.elev, state.thr);
+        const r = analysis.reversed(f, state.thr);
         state.routes = [f, r];
         state.recommended = r.kneeLoad < f.kneeLoad ? 1 : 0;
       } else {
@@ -280,7 +312,7 @@
       return;
     }
     if (state.routes.length === 1) {
-      setStatus("The router returned only one walking route here — it found no sufficiently distinct alternative. Other paths you see may be nearly the same length or not in the foot network.");
+      setStatus("Only one distinct walking route exists here — I also tried detours to either side and found nothing different within your budget. Widening the acceptable-detour slider may open up more options.");
       return;
     }
     const best = analysis.pickWithinDetour(state.routes, state.detour);
@@ -479,7 +511,8 @@
    * cache it. renderSuggestions then colours/sorts by the real numbers instead
    * of my hand-set guesses. */
   const REF_THR = 0.08;
-  function tripSig(t) { return (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
+  // "v2" invalidates caches from before direction data was stored
+  function tripSig(t) { return "v2|" + (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
 
   async function tripMetrics(t) {
     if (!t.waypoints || !t.waypoints.length) return null;
@@ -489,18 +522,19 @@
     try { geoms = await api.osrmRoute(wpts, t.mode === "ab"); }
     catch (e) { geoms = [wpts]; }
     const built = await buildRoutes(geoms, true);
-    let best;
+    let best, dirSaved = 0;
     if (t.mode === "ab") {
       const routes = built.map((x) => analysis.analyse(x.pts, x.elev, REF_THR));
       best = routes[analysis.pickWithinDetour(routes, 0.25)];
     } else {
       const b0 = built[0];
       const f = analysis.analyse(b0.pts, b0.elev, REF_THR);
-      const rv = analysis.reverseSeries(b0.pts, b0.elev);
-      const r = analysis.analyse(rv.pts, rv.elev, REF_THR);
+      const r = analysis.reversed(f, REF_THR);
       best = r.kneeLoad < f.kneeLoad ? r : f;
+      const worse = best === r ? f : r;
+      dirSaved = Math.max(0, Math.round(worse.steepDown - best.steepDown));
     }
-    return { steepDown: best.steepDown, dist: best.dist, time: best.time, sig: tripSig(t) };
+    return { steepDown: best.steepDown, dist: best.dist, time: best.time, dirSaved, sig: tripSig(t) };
   }
 
   async function analyzeSuggestions() {

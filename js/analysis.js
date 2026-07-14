@@ -31,15 +31,27 @@
     return { pts: pts.slice().reverse(), elev: elev.slice().reverse() };
   }
 
+  // the same path walked the other way — used for direction advice
+  function reversed(route, thr) {
+    const rv = reverseSeries(route.pts, route.elev);
+    return analyse(rv.pts, rv.elev, thr);
+  }
+
   // Pick the gentlest route (least knee load) whose distance stays within
-  // `budget` (fraction) of the shortest route. Returns the index.
+  // `budget` (fraction) of the shortest route. Near-ties in knee load go to
+  // the shorter route, so a barely-gentler option can't drag in a long detour.
+  // Returns the index.
   function pickWithinDetour(routes, budget) {
     if (!routes.length) return 0;
     const shortest = Math.min(...routes.map((r) => r.dist));
     const cap = shortest * (1 + budget);
     let best = -1;
     routes.forEach((r, i) => {
-      if (r.dist <= cap && (best === -1 || r.kneeLoad < routes[best].kneeLoad)) best = i;
+      if (r.dist > cap) return;
+      if (best === -1) { best = i; return; }
+      const b = routes[best];
+      if (r.kneeLoad < b.kneeLoad * 0.95 - 1) best = i;                 // clearly gentler
+      else if (r.kneeLoad <= b.kneeLoad * 1.05 + 1 && r.dist < b.dist) best = i; // near-tie: shorter wins
     });
     if (best === -1) { // nothing within budget: fall back to absolute gentlest
       best = 0;
@@ -48,5 +60,5 @@
     return best;
   }
 
-  ES.analysis = { analyse, reverseSeries, pickWithinDetour };
+  ES.analysis = { analyse, reverseSeries, reversed, pickWithinDetour };
 })();

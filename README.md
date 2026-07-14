@@ -9,9 +9,18 @@ for loops, tells you which **direction** spares your knees.
 - **A → B** routing or **Loop** (pick the gentler direction around a lake).
 - Tap points on the map **or type start/destination addresses** (geocoded via
   Nominatim, biased to the Trondheim area).
+- **Direction advice everywhere**: loops recommend the gentler way round, and
+  A → B tells you when walking the same route **the other way (B → A)** would
+  cut the steep descent — handy if you can start from either end.
+- **Wider route search**: besides the router's own alternatives, EasyStride
+  probes **side-path detours** (via-points pushed out to each side of the
+  direct line), so "Suggest a gentler route" has real options even where the
+  router returns just one path.
 - **Pain threshold** slider: choose what down-grade counts as "painful".
 - **Acceptable detour** slider + **Suggest a gentler route** button: trade a bit
   of extra distance for less steep descent, capped at the detour you allow.
+  Near-ties in knee load go to the **shorter** route, so a barely-gentler
+  option never drags in a long detour.
 - Colour-coded route + elevation profile, plus distance / climb / descent /
   time / max-grade stats.
 

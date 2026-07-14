@@ -92,13 +92,19 @@
     if (ES.state.mode === "loop") {
       const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
       const saved = Math.round(other.steepDown - chosen.steepDown);
-      verdict.innerHTML = saved > 3
+      // "direction matters" when it saves steep metres OR clearly lowers knee load
+      const meaningful = saved > 3 || other.kneeLoad > chosen.kneeLoad * 1.15 + 2;
+      verdict.innerHTML = meaningful
         ? `Follow the <span class="arrow">➤</span> <b>recommended direction</b> around the loop.`
         : `This loop is gentle <b>either direction</b>.`;
       delta.innerHTML =
         `Recommended direction · steep downhill <b>${Math.round(chosen.steepDown)} m</b><br>` +
         `Reverse direction · steep downhill <b>${Math.round(other.steepDown)} m</b>` +
-        (saved > 3 ? `<br>→ the recommended way takes the steep side <b>uphill</b>, saving <b>${saved} m</b> of jarring descent. Same loop and same points — just follow the arrow.` : ``);
+        (meaningful
+          ? (saved > 3
+            ? `<br>→ the recommended way takes the steep side <b>uphill</b>, saving <b>${saved} m</b> of jarring descent. Same loop and same points — just follow the arrow.`
+            : `<br>→ the recommended way keeps the descents gentler overall (less time going down near your limit). Same loop — just follow the arrow.`)
+          : ``);
       reco.classList.add("show");
     } else {
       const chosen = routes[best];
@@ -107,14 +113,25 @@
       verdict.innerHTML = routes.length > 1
         ? `Gentlest of ${routes.length} routes selected${extra > 5 ? ` (+${fmtM(extra)} detour)` : ``}.`
         : `Route analysed.`;
-      delta.innerHTML = `Steep downhill on this route: <b>${Math.round(chosen.steepDown)} m</b> of trail steeper than ${Math.round(ES.state.thr * 100)}%.`;
+      let tip = "";
+      if (ES.state.mode === "ab" && ES.state.waypoints.length === 2) {
+        // would the same walk be kinder the other way round?
+        const shown = routes[ES.state.selected] || chosen;
+        const rev = ES.analysis.reversed(shown, ES.state.thr);
+        const savedRev = Math.round(shown.steepDown - rev.steepDown);
+        if (rev.kneeLoad < shown.kneeLoad * 0.8 - 2 && savedRev > 5) {
+          tip = `<br>💡 Walking this route <b>the other way (B → A)</b> would cut the steep downhill by <b>${savedRev} m</b> — the climbs and descents swap. Worth considering if you can start from the other end (e.g. bus one way).`;
+        }
+      }
+      delta.innerHTML = `Steep downhill on this route: <b>${Math.round(chosen.steepDown)} m</b> of trail steeper than ${Math.round(ES.state.thr * 100)}%.` + tip;
       reco.classList.add("show");
       if (routes.length > 1) {
         sw.style.display = "flex";
         routes.forEach((rt, i) => {
           const div = document.createElement("div");
+          const extraI = Math.round(rt.dist - shortest);
           div.className = "opt" + (i === ES.state.selected ? " sel" : "");
-          div.innerHTML = `<span>Route ${i + 1} · ${fmtM(rt.dist)}` +
+          div.innerHTML = `<span>Route ${i + 1} · ${fmtM(rt.dist)}${extraI > 5 ? ` (+${fmtM(extraI)})` : ``}` +
             (i === best ? `<span class="best">gentlest</span>` : ``) + `</span>` +
             `<span class="m">${Math.round(rt.steepDown)} m steep ↓</span>`;
           div.onclick = () => { ES.state.selected = i; render(); };
@@ -239,13 +256,15 @@
       const col = ratingColor(rating);
       const distLabel = m ? fmtM(m.dist) : t.dist;
       const steepLabel = m ? `${Math.round(m.steepDown)} m steep ↓` : (t.mode === "loop" ? "loop" : "A→B");
+      // flag loops where walking the right way round makes a real difference
+      const dirLabel = m && m.dirSaved > 10 ? ` · right direction saves ${m.dirSaved} m ↓` : "";
       const div = document.createElement("div");
       div.className = "trip trip-" + rating;
       div.style.setProperty("--trip", col);
       div.innerHTML =
         `<div class="trip-head"><span class="trip-name">${t.name}</span>` +
         `<span class="trip-badge" style="background:${col}">${ratingLabel(rating)}</span></div>` +
-        `<div class="trip-meta">${t.area} · ${distLabel} · ${steepLabel}</div>` +
+        `<div class="trip-meta">${t.area} · ${distLabel} · ${steepLabel}${dirLabel}</div>` +
         `<div class="trip-guide">${t.guide}</div>`;
       div.onclick = () => onSelect(t);
       wrap.appendChild(div);
@@ -313,11 +332,13 @@
     const routes = ES.state.routes, best = ES.state.recommended;
     const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
     const saved = Math.round(other.steepDown - chosen.steepDown);
-    const gentleEither = saved <= 3;
+    const gentleEither = saved <= 3 && other.kneeLoad <= chosen.kneeLoad * 1.15 + 2;
     const title = gentleEither ? "This loop is gentle either direction" : "Recommended walking direction";
     const lead = gentleEither
       ? `It's about the same both ways here, so walk it whichever direction you prefer — your points and the path don't change.`
-      : `The <b>recommended direction</b> (shown by the arrow on the map) is gentler than the reverse — about <b>${saved} m</b> less steep downhill, because it takes the steep side <b>uphill</b>. You still walk the same loop through the same numbered points; only the direction of travel changes.`;
+      : saved > 3
+        ? `The <b>recommended direction</b> (shown by the arrow on the map) is gentler than the reverse — about <b>${saved} m</b> less steep downhill, because it takes the steep side <b>uphill</b>. You still walk the same loop through the same numbered points; only the direction of travel changes.`
+        : `The <b>recommended direction</b> (shown by the arrow on the map) keeps the descents gentler overall — less of the walk goes downhill near your steepness limit. Same loop, same points; only the direction of travel changes.`;
     const rows =
       `<tr><td>Steep downhill · recommended</td><td class="num win">${Math.round(chosen.steepDown)} m</td></tr>` +
       `<tr><td>Steep downhill · reverse</td><td class="num">${Math.round(other.steepDown)} m</td></tr>` +
