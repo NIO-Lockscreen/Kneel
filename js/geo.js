@@ -76,6 +76,28 @@
     return line[line.length - 1];
   }
 
+  // metres from point p to segment a–b (local equirectangular approximation —
+  // plenty accurate at the tens-of-metres scale this is used for)
+  function distToSegment(p, a, b) {
+    const kx = 111320 * Math.cos(rad(p.lat)), ky = 110540;
+    const ax = (a.lng - p.lng) * kx, ay = (a.lat - p.lat) * ky;
+    const bx = (b.lng - p.lng) * kx, by = (b.lat - p.lat) * ky;
+    const dx = bx - ax, dy = by - ay;
+    const L2 = dx * dx + dy * dy;
+    let t = L2 ? -(ax * dx + ay * dy) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const x = ax + dx * t, y = ay + dy * t;
+    return Math.sqrt(x * x + y * y);
+  }
+
+  // is p within maxDist metres of the polyline?
+  function nearPolyline(p, line, maxDist) {
+    for (let i = 0; i < line.length - 1; i++) {
+      if (distToSegment(p, line[i], line[i + 1]) <= maxDist) return true;
+    }
+    return false;
+  }
+
   // do two geometries describe essentially the same walk? (similar length and
   // close together at the ¼, ½ and ¾ marks)
   function sameGeometry(a, b) {
@@ -99,5 +121,5 @@
     return out;
   }
 
-  ES.geo = { R, rad, haversine, bearing, resample, smooth, offset, pathLength, pointAt, sameGeometry };
+  ES.geo = { R, rad, haversine, bearing, resample, smooth, offset, pathLength, pointAt, distToSegment, nearPolyline, sameGeometry };
 })();

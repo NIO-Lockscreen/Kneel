@@ -20,6 +20,7 @@
     recommended: 0,
     thr: 0.08,                 // pain threshold (down-grade fraction)
     detour: 0.25,              // max acceptable detour vs shortest route (fraction)
+    avoidAll: false,           // ignore the detour cap: gentlest route at (almost) any cost
     busy: false,
     editingId: null,           // id of the saved trip currently being edited, if any
   };

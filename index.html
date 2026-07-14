@@ -102,6 +102,10 @@
           </div>
           <input type="range" id="detour" min="0" max="100" step="5" value="25" />
         </div>
+        <label class="check">
+          <input type="checkbox" id="avoidAll" />
+          <span><b>Avoid steep downhill at almost any cost</b> — ignore the detour cap and search wider for the gentlest way, however long.</span>
+        </label>
       </div>
 
       <div class="block">
@@ -149,13 +153,15 @@
           <div class="li"><span class="sw" style="background:var(--g-flat)"></span>Flat / gentle — fine</div>
           <div class="li"><span class="sw" style="background:var(--g-down2)"></span>Over your limit — watch</div>
           <div class="li"><span class="sw" style="background:var(--g-down3)"></span>Well over — sore</div>
+          <div class="li"><span class="sw" style="background:repeating-linear-gradient(90deg,var(--g-down3) 0 4px,transparent 4px 7px)"></span>Stairs going down — dashed red, worst for knees</div>
           <div class="li"><span class="num-ico" style="width:16px;height:16px;font-size:9px">2</span>Waypoint (tap to remove)</div>
         </div>
       </div>
 
       <div class="credit">
         Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Open-Meteo DEM (~30 m).
-        Planning aid only — not medical advice. Grades from public elevation data can be a little noisy on short segments.
+        Stairs: OpenStreetMap via Overpass. Planning aid only — not medical advice.
+        Grades from public elevation data can be a little noisy on short segments.
       </div>
 
     </div>

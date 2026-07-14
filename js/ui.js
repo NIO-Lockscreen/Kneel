@@ -23,14 +23,21 @@
   function fmtM(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 2) + " km" : Math.round(m) + " m"; }
   function fmtTime(s) { const m = Math.round(s / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " min" : m + " min"; }
 
+  // is segment i descending stairs? (drawn dashed red — the worst for knees)
+  function isDownStairs(route, i) {
+    return !!(route.stairs && route.stairs[i] && route.elev[i + 1] <= route.elev[i]);
+  }
+
   // ---- map: coloured route + start/direction decorations ----
   function drawRoute(route) {
     const { route: routeLayer, deco: decoLayer } = ES.layers;
     routeLayer.clearLayers(); decoLayer.clearLayers();
     const p = route.pts;
     for (let i = 0; i < p.length - 1; i++) {
+      const stair = isDownStairs(route, i);
       L.polyline([[p[i].lat, p[i].lng], [p[i + 1].lat, p[i + 1].lng]],
-        { color: gradeColor(route.grades[i], ES.state.thr), weight: 6, opacity: .95, lineCap: "round" }).addTo(routeLayer);
+        { color: stair ? getCss("--g-down3") : gradeColor(route.grades[i], ES.state.thr),
+          weight: 6, opacity: .95, lineCap: "round", dashArray: stair ? "3 8" : null }).addTo(routeLayer);
     }
     L.marker([p[0].lat, p[0].lng], { icon: L.divIcon({ className: "", html: '<div class="start-ico"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(decoLayer);
     const ai = Math.min(p.length - 2, Math.max(1, Math.round(p.length * 0.18)));
@@ -56,10 +63,12 @@
     const area = document.createElementNS(NS, "path");
     area.setAttribute("d", dpath); area.setAttribute("fill", "rgba(47,111,126,.10)"); svg.appendChild(area);
     for (let i = 0; i < cum.length - 1; i++) {
+      const stair = isDownStairs(route, i);
       const ln = document.createElementNS(NS, "line");
       ln.setAttribute("x1", X(cum[i])); ln.setAttribute("y1", Y(elev[i]));
       ln.setAttribute("x2", X(cum[i + 1])); ln.setAttribute("y2", Y(elev[i + 1]));
-      ln.setAttribute("stroke", gradeColor(route.grades[i], ES.state.thr));
+      ln.setAttribute("stroke", stair ? getCss("--g-down3") : gradeColor(route.grades[i], ES.state.thr));
+      if (stair) ln.setAttribute("stroke-dasharray", "3 4");
       ln.setAttribute("stroke-width", "3"); ln.setAttribute("stroke-linecap", "round"); svg.appendChild(ln);
     }
     const label = (x, y, anchor, txt) => {
@@ -100,6 +109,7 @@
       delta.innerHTML =
         `Recommended direction · steep downhill <b>${Math.round(chosen.steepDown)} m</b><br>` +
         `Reverse direction · steep downhill <b>${Math.round(other.steepDown)} m</b>` +
+        (chosen.stairsDown > 5 ? `<br>Includes <b style="color:var(--g-down3)">~${Math.round(chosen.stairsDown)} m of descending stairs</b> (dashed red).` : ``) +
         (meaningful
           ? (saved > 3
             ? `<br>→ the recommended way takes the steep side <b>uphill</b>, saving <b>${saved} m</b> of jarring descent. Same loop and same points — just follow the arrow.`
@@ -123,7 +133,10 @@
           tip = `<br>💡 Walking this route <b>the other way (B → A)</b> would cut the steep downhill by <b>${savedRev} m</b> — the climbs and descents swap. Worth considering if you can start from the other end (e.g. bus one way).`;
         }
       }
-      delta.innerHTML = `Steep downhill on this route: <b>${Math.round(chosen.steepDown)} m</b> of trail steeper than ${Math.round(ES.state.thr * 100)}%.` + tip;
+      const stairNote = chosen.stairsDown > 5
+        ? ` Includes <b style="color:var(--g-down3)">~${Math.round(chosen.stairsDown)} m of descending stairs</b> (dashed red) — the hardest thing for sore knees.`
+        : ``;
+      delta.innerHTML = `Steep downhill on this route: <b>${Math.round(chosen.steepDown)} m</b> of trail steeper than ${Math.round(ES.state.thr * 100)}%.` + stairNote + tip;
       reco.classList.add("show");
       if (routes.length > 1) {
         sw.style.display = "flex";
@@ -342,6 +355,8 @@
     const rows =
       `<tr><td>Steep downhill · recommended</td><td class="num win">${Math.round(chosen.steepDown)} m</td></tr>` +
       `<tr><td>Steep downhill · reverse</td><td class="num">${Math.round(other.steepDown)} m</td></tr>` +
+      (chosen.stairsDown > 5 || other.stairsDown > 5
+        ? `<tr><td>Descending stairs</td><td class="num">${Math.round(chosen.stairsDown)} m (reverse: ${Math.round(other.stairsDown)} m)</td></tr>` : ``) +
       `<tr><td>Distance</td><td class="num">${fmtM(chosen.dist)}</td></tr>` +
       `<tr><td>Est. time</td><td class="num">${fmtTime(chosen.time)}</td></tr>` +
       `<tr><td>Total descent ↓</td><td class="num">${Math.round(chosen.descent)} m</td></tr>` +

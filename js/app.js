@@ -142,15 +142,57 @@
   });
 
   /* ---------- routing pipeline ---------- */
+  // effective detour budget: unlimited when "avoid at almost any cost" is on
+  function detourBudget() { return state.avoidAll ? Infinity : state.detour; }
+
+  // Stair ways (OSM highway=steps) covering all candidate geometries, with a
+  // small containment cache so repeat runs in the same area skip Overpass.
+  let stairCache = null; // { s, w, n, e, ways, at }
+  async function stairWaysFor(geoms) {
+    let s = 90, w = 180, n = -90, e = -180;
+    geoms.forEach((g) => g.forEach((p) => {
+      s = Math.min(s, p.lat); n = Math.max(n, p.lat);
+      w = Math.min(w, p.lng); e = Math.max(e, p.lng);
+    }));
+    const pad = 0.002; // ~200 m
+    s -= pad; w -= pad; n += pad; e += pad;
+    const c = stairCache;
+    if (c && s >= c.s && w >= c.w && n <= c.n && e <= c.e && Date.now() - c.at < 10 * 60 * 1000) return c.ways;
+    try {
+      setStatus("Checking for stairs on the way…");
+      const ways = await api.fetchStairs(s, w, n, e);
+      stairCache = { s, w, n, e, ways, at: Date.now() };
+      return ways;
+    } catch (err) { return []; } // Overpass unavailable: analyse without stair data
+  }
+
+  // per-segment stair mask for a resampled route (null when no stairs nearby)
+  function stairMask(pts, ways) {
+    if (!ways.length) return null;
+    const NEAR = 10; // metres; resampled points sit close to the real geometry
+    const mask = new Array(pts.length - 1);
+    let any = false;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const mid = { lat: (pts[i].lat + pts[i + 1].lat) / 2, lng: (pts[i].lng + pts[i + 1].lng) / 2 };
+      mask[i] = ways.some((wy) => geo.nearPolyline(mid, wy, NEAR) ||
+        geo.nearPolyline(pts[i], wy, NEAR) || geo.nearPolyline(pts[i + 1], wy, NEAR));
+      any = any || mask[i];
+    }
+    return any ? mask : null;
+  }
+
   // Build & elevation-tag every geometry returned by the router.
+  // Quiet mode (background suggestion scoring) skips the stairs lookup to
+  // keep Overpass traffic down.
   async function buildRoutes(geoms, quiet) {
+    const stairWays = quiet ? [] : await stairWaysFor(geoms);
     const built = [];
     for (const geom of geoms) {
       const total = geom.reduce((a, _, i) => (i ? a + geo.haversine(geom[i - 1], geom[i]) : 0), 0);
       const pts = geo.resample(geom, Math.max(config.sampleSpacing, total / config.maxRoutePoints), config.maxRoutePoints);
       if (!quiet) setStatus(geoms.length > 1 ? `Reading elevation… (route ${built.length + 1}/${geoms.length})` : "Reading elevation…");
       const elev = geo.smooth(await api.fetchElevation(pts), 2);
-      built.push({ pts, elev });
+      built.push({ pts, elev, stairs: stairMask(pts, stairWays) });
     }
     return built;
   }
@@ -164,14 +206,18 @@
     if (d < 500) return []; // too short for a detour to matter
     const br = geo.bearing(a, b);
     const mid = { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
+    // "avoid at almost any cost" searches wider: a second, farther via per side
+    const fracs = state.avoidAll ? [0.18, 0.35] : [0.18];
     const out = [];
-    for (const side of [90, -90]) {
-      try {
-        if (!quiet) setStatus("Looking for gentler detours…");
-        const via = geo.offset(mid, br + side, d * 0.18);
-        const g = (await api.osrmRoute([a, via, b], false))[0];
-        if (!have.concat(out).some((h) => geo.sameGeometry(h, g))) out.push(g);
-      } catch (e) { /* no walkable path on that side — skip it */ }
+    for (const f of fracs) {
+      for (const side of [90, -90]) {
+        try {
+          if (!quiet) setStatus("Looking for gentler detours…");
+          const via = geo.offset(mid, br + side, d * f);
+          const g = (await api.osrmRoute([a, via, b], false))[0];
+          if (!have.concat(out).some((h) => geo.sameGeometry(h, g))) out.push(g);
+        } catch (e) { /* no walkable path on that side — skip it */ }
+      }
     }
     return out;
   }
@@ -181,9 +227,13 @@
   async function abGeometries(a, b, quiet) {
     let geoms = await api.osrmRoute([a, b], true);
     geoms = geoms.concat(await viaCandidates(a, b, geoms, quiet));
-    const lens = geoms.map(geo.pathLength);
-    const cap = Math.min(...lens) * (1 + state.detour + 0.10);
-    return geoms.filter((g, i) => i === 0 || lens[i] <= cap); // keep the primary regardless
+    const budget = detourBudget();
+    if (isFinite(budget)) {
+      const lens = geoms.map(geo.pathLength);
+      const cap = Math.min(...lens) * (1 + budget + 0.10);
+      geoms = geoms.filter((g, i) => i === 0 || lens[i] <= cap); // keep the primary regardless
+    }
+    return geoms;
   }
 
   // route a single A→B pair and return its gentlest-within-detour option
@@ -192,8 +242,8 @@
     try { geoms = await abGeometries(a, b); }
     catch (e) { geoms = [[a, b]]; }
     const built = await buildRoutes(geoms);
-    const routes = built.map((x) => analysis.analyse(x.pts, x.elev, state.thr));
-    return routes[analysis.pickWithinDetour(routes, state.detour)];
+    const routes = built.map((x) => analysis.analyse(x.pts, x.elev, state.thr, x.stairs));
+    return routes[analysis.pickWithinDetour(routes, detourBudget())];
   }
 
   async function run() {
@@ -228,13 +278,13 @@
       const built = await buildRoutes(geoms);
 
       if (state.mode === "loop") {
-        const f = analysis.analyse(built[0].pts, built[0].elev, state.thr);
+        const f = analysis.analyse(built[0].pts, built[0].elev, state.thr, built[0].stairs);
         const r = analysis.reversed(f, state.thr);
         state.routes = [f, r];
         state.recommended = r.kneeLoad < f.kneeLoad ? 1 : 0;
       } else {
-        state.routes = built.map((b) => analysis.analyse(b.pts, b.elev, state.thr));
-        state.recommended = analysis.pickWithinDetour(state.routes, state.detour);
+        state.routes = built.map((b) => analysis.analyse(b.pts, b.elev, state.thr, b.stairs));
+        state.recommended = analysis.pickWithinDetour(state.routes, detourBudget());
       }
       state.selected = state.recommended;
       ui.render();
@@ -315,12 +365,14 @@
       setStatus("Only one distinct walking route exists here — I also tried detours to either side and found nothing different within your budget. Widening the acceptable-detour slider may open up more options.");
       return;
     }
-    const best = analysis.pickWithinDetour(state.routes, state.detour);
+    const best = analysis.pickWithinDetour(state.routes, detourBudget());
     state.recommended = state.selected = best;
     ui.render();
     const shortest = Math.min(...state.routes.map((r) => r.dist));
     const extra = Math.round(state.routes[best].dist - shortest);
-    setStatus(`Gentlest route within +${Math.round(state.detour * 100)}% detour selected${extra > 5 ? ` (+${ui.fmtM(extra)})` : ``}.`);
+    setStatus(state.avoidAll
+      ? `Gentlest route selected — detour cap off${extra > 5 ? ` (+${ui.fmtM(extra)})` : ``}.`
+      : `Gentlest route within +${Math.round(state.detour * 100)}% detour selected${extra > 5 ? ` (+${ui.fmtM(extra)})` : ``}.`);
   }
 
   /* ---------- mode switching ---------- */
@@ -403,28 +455,40 @@
     state.detour = parseInt(e.target.value, 10) / 100;
     $("detourVal").textContent = e.target.value + "%";
     if (state.routes.length && state.mode === "ab") {
-      state.recommended = analysis.pickWithinDetour(state.routes, state.detour);
+      state.recommended = analysis.pickWithinDetour(state.routes, detourBudget());
       if (state.selected >= state.routes.length) state.selected = state.recommended;
       ui.render();
     }
+  };
+
+  $("avoidAll").onchange = (e) => {
+    state.avoidAll = e.target.checked;
+    store.setAvoid(state.avoidAll);
+    if (state.routes.length && state.mode === "ab") {
+      state.recommended = state.selected = analysis.pickWithinDetour(state.routes, detourBudget());
+      ui.render();
+    }
+    setStatus(state.avoidAll
+      ? "Detour cap off — I'll pick the gentlest option however long. Re-run “Route & analyse” to also search wider for detours."
+      : `Detour cap back on at +${Math.round(state.detour * 100)}%.`);
   };
 
   // Re-score existing routes after a threshold change (no new network calls).
   function rescore() {
     if (!state.routes.length) return;
     if (state.mode === "compare") {
-      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr));
+      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr, rt.stairs));
       state.recommended = state.routes[0].kneeLoad <= state.routes[1].kneeLoad ? 0 : 1;
       ui.renderCompare();
       return;
     }
     if (state.mode === "loop") {
       const a = state.routes[0], b = state.routes[1];
-      const f = analysis.analyse(a.pts, a.elev, state.thr), r = analysis.analyse(b.pts, b.elev, state.thr);
+      const f = analysis.analyse(a.pts, a.elev, state.thr, a.stairs), r = analysis.analyse(b.pts, b.elev, state.thr, b.stairs);
       state.routes = [f, r]; state.recommended = r.kneeLoad < f.kneeLoad ? 1 : 0;
     } else {
-      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr));
-      state.recommended = analysis.pickWithinDetour(state.routes, state.detour);
+      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr, rt.stairs));
+      state.recommended = analysis.pickWithinDetour(state.routes, detourBudget());
     }
     if (state.selected >= state.routes.length) state.selected = state.recommended;
     ui.render();
@@ -641,6 +705,9 @@
     $("thrVal").textContent = pct + "%";
     describeThreshold(pct);
   })();
+  // restore the "avoid at almost any cost" toggle
+  state.avoidAll = store.getAvoid();
+  $("avoidAll").checked = state.avoidAll;
   setMode("ab");
   ui.updateGoEnabled();
   analyzeSuggestions(); // refine ratings/colours from real data in the background

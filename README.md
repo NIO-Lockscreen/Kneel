@@ -16,11 +16,18 @@ for loops, tells you which **direction** spares your knees.
   probes **side-path detours** (via-points pushed out to each side of the
   direct line), so "Suggest a gentler route" has real options even where the
   router returns just one path.
+- **Stairs detection**: flags OpenStreetMap `highway=steps` on the route (via
+  Overpass) and treats **descending stairs** as the most jarring thing a knee
+  can meet — they're drawn **dashed red** on the map and profile, counted in
+  the knee load, and called out in the recommendation.
 - **Pain threshold** slider: choose what down-grade counts as "painful".
 - **Acceptable detour** slider + **Suggest a gentler route** button: trade a bit
   of extra distance for less steep descent, capped at the detour you allow.
   Near-ties in knee load go to the **shorter** route, so a barely-gentler
   option never drags in a long detour.
+- **"Avoid steep downhill at almost any cost"** toggle: lifts the detour cap
+  and searches wider (extra via-point candidates), for days when the knees
+  simply won't take a descent.
 - Colour-coded route + elevation profile, plus distance / climb / descent /
   time / max-grade stats.
 
@@ -68,5 +75,6 @@ namespace, so they work both from `file://` and when deployed.
 ## Data & disclaimer
 
 Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Open-Meteo DEM
-(~30 m). Geocoding: Nominatim (OpenStreetMap). Planning aid only — not medical
-advice. Grades from public elevation data can be noisy on short segments.
+(~30 m). Stairs: OpenStreetMap via Overpass. Geocoding: Nominatim
+(OpenStreetMap). Planning aid only — not medical advice. Grades from public
+elevation data can be noisy on short segments.

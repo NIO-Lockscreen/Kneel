@@ -35,6 +35,24 @@
     return j.routes.map((rt) => rt.geometry.coordinates.map((c) => ({ lat: c[1], lng: c[0] })));
   }
 
+  // ---- stairs (Overpass: OSM highway=steps ways in a bbox) ----
+  // Returns an array of polylines ([{lat,lng}, …]) for stair ways, so routes
+  // can flag segments that descend steps — the most jarring thing for knees.
+  async function fetchStairs(south, west, north, east) {
+    const bbox = `${south.toFixed(5)},${west.toFixed(5)},${north.toFixed(5)},${east.toFixed(5)}`;
+    const q = `[out:json][timeout:12];way[highway=steps](${bbox});out geom 400;`;
+    const r = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "data=" + encodeURIComponent(q),
+    });
+    if (!r.ok) throw new Error("stairs " + r.status);
+    const j = await r.json();
+    return (j.elements || [])
+      .filter((el) => el.geometry && el.geometry.length > 1)
+      .map((el) => el.geometry.map((g) => ({ lat: g.lat, lng: g.lon })));
+  }
+
   // ---- geocoding (Nominatim) ----
   // `viewbox` (west,north,east,south) softly biases results to a region; omit
   // it for a global search (e.g. picking a town/city).
@@ -55,5 +73,5 @@
     return { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), label: hit.display_name, bbox };
   }
 
-  ES.api = { fetchElevation, osrmRoute, geocode };
+  ES.api = { fetchElevation, osrmRoute, fetchStairs, geocode };
 })();

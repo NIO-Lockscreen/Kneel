@@ -4,10 +4,16 @@
   "use strict";
   const ES = (window.EasyStride = window.EasyStride || {});
 
-  // analyse one ordered (pts, elev) pair in its given direction
-  function analyse(pts, elev, thr) {
+  // Each metre of DESCENDING stairs counts as this many "equivalent steep
+  // metres" of knee load — about the same as an 18% down-slope, because real
+  // steps are far steeper and more jarring than the smoothed DEM ever shows.
+  const STAIR_LOAD = 1.0;
+
+  // analyse one ordered (pts, elev) pair in its given direction.
+  // `stairs` is an optional per-segment boolean mask (OSM highway=steps).
+  function analyse(pts, elev, thr, stairs) {
     const { haversine } = ES.geo;
-    let dist = 0, ascent = 0, descent = 0, steepDown = 0, kneeLoad = 0, time = 0, maxDown = 0;
+    let dist = 0, ascent = 0, descent = 0, steepDown = 0, stairsDown = 0, kneeLoad = 0, time = 0, maxDown = 0;
     const cum = [0], grades = [];
     for (let i = 0; i < pts.length - 1; i++) {
       const d = haversine(pts[i], pts[i + 1]); cum.push(cum[i] + d);
@@ -15,7 +21,12 @@
       const dh = elev[i + 1] - elev[i], grade = dh / d;
       grades.push(grade); dist += d;
       if (dh > 0) ascent += dh; else descent += -dh;
-      if (dh < 0) {
+      const downStairs = stairs && stairs[i] && dh <= 0;
+      if (downStairs) {                          // stairs going down: worst case
+        steepDown += d; stairsDown += d;
+        kneeLoad += d * STAIR_LOAD;
+        if (-grade > maxDown) maxDown = -grade;
+      } else if (dh < 0) {
         const g = -grade;                       // positive down-grade
         if (g > thr) steepDown += d;            // metres of painful trail
         kneeLoad += (-dh) * Math.pow(g / thr, 2); // "equivalent steep metres"
@@ -24,17 +35,19 @@
       const v = 6 * Math.exp(-3.5 * Math.abs(grade + 0.05)); // Tobler km/h
       time += (d / 1000) / Math.max(v, 0.4) * 3600;
     }
-    return { pts, elev, grades, cum, dist, ascent, descent, steepDown, kneeLoad, time, maxDown };
+    return { pts, elev, grades, cum, stairs: stairs || null, dist, ascent, descent, steepDown, stairsDown, kneeLoad, time, maxDown };
   }
 
   function reverseSeries(pts, elev) {
     return { pts: pts.slice().reverse(), elev: elev.slice().reverse() };
   }
 
-  // the same path walked the other way — used for direction advice
+  // the same path walked the other way — used for direction advice.
+  // (reversing segment order also reverses the per-segment stair mask)
   function reversed(route, thr) {
     const rv = reverseSeries(route.pts, route.elev);
-    return analyse(rv.pts, rv.elev, thr);
+    const st = route.stairs ? route.stairs.slice().reverse() : null;
+    return analyse(rv.pts, rv.elev, thr, st);
   }
 
   // Pick the gentlest route (least knee load) whose distance stays within

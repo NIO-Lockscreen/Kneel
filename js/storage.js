@@ -8,6 +8,7 @@
   const TRIPS_KEY = "easystride.savedTrips";
   const METRICS_KEY = "easystride.tripMetrics";
   const THRESHOLD_KEY = "easystride.steepnessPct";
+  const AVOID_KEY = "easystride.avoidAll";
 
   function read(key, fallback) {
     try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
@@ -42,5 +43,9 @@
   function getThreshold(fallback) { const v = read(THRESHOLD_KEY, null); return Number.isFinite(v) ? v : fallback; }
   function setThreshold(pct) { return write(THRESHOLD_KEY, pct); }
 
-  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics, getThreshold, setThreshold };
+  // ---- "avoid steep downhill at almost any cost" toggle ----
+  function getAvoid() { return !!read(AVOID_KEY, false); }
+  function setAvoid(on) { return write(AVOID_KEY, !!on); }
+
+  ES.store = { getHome, setHome, getTrips, saveTrips, addTrip, updateTrip, deleteTrip, getMetrics, setMetrics, getThreshold, setThreshold, getAvoid, setAvoid };
 })();
