@@ -9,9 +9,15 @@ for loops, tells you which **direction** spares your knees.
 - **A → B** routing or **Loop** (pick the gentler direction around a lake).
 - Tap points on the map **or type start/destination addresses** (geocoded via
   Nominatim, biased to the Trondheim area).
-- **Direction advice everywhere**: loops recommend the gentler way round, and
-  A → B tells you when walking the same route **the other way (B → A)** would
-  cut the steep descent — handy if you can start from either end.
+- **Direction advice everywhere**: loops recommend the gentler way round (with
+  buttons to **preview the other direction** on the map), and A → B tells you
+  when walking the same route **the other way (B → A)** would cut the steep
+  descent — handy if you can start from either end.
+- **DEM noise guard**: up/down wiggles with under ~3 m of total height change
+  are elevation-model noise, not hills — they're flattened before scoring so a
+  genuinely flat lakeside loop isn't painted steep. Suggested-trip ratings are
+  also **relative to distance** and can refine, but never fully override, the
+  curated walked-and-verified ratings.
 - **Wider route search**: besides the router's own alternatives, EasyStride
   probes **side-path detours** (via-points pushed out to each side of the
   direct line), so "Suggest a gentler route" has real options even where the

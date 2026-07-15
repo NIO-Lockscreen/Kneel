@@ -10,6 +10,7 @@
     elevationBatch: 100,       // Open-Meteo points per request
     maxRoutePoints: 150,       // resample cap per route
     sampleSpacing: 30,         // metres, minimum spacing when resampling
+    noiseFloor: 3,             // metres: up/down runs smaller than this are DEM noise
   };
 
   ES.state = {

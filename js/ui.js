@@ -114,7 +114,22 @@
           ? (saved > 3
             ? `<br>→ the recommended way takes the steep side <b>uphill</b>, saving <b>${saved} m</b> of jarring descent. Same loop and same points — just follow the arrow.`
             : `<br>→ the recommended way keeps the descents gentler overall (less time going down near your limit). Same loop — just follow the arrow.`)
+          : ``) +
+        (ES.state.selected !== best
+          ? `<br>⟲ The map is showing the <b>other direction</b> — colours and arrow are for walking it that way.`
           : ``);
+      // direction switcher: preview the loop the other way round
+      sw.style.display = "flex";
+      [best, best === 0 ? 1 : 0].forEach((idx) => {
+        const rt = routes[idx];
+        const div = document.createElement("div");
+        div.className = "opt" + (idx === ES.state.selected ? " sel" : "");
+        div.innerHTML = `<span>${idx === best ? "Recommended direction ➤" : "Other direction ⟲"}` +
+          (idx === best ? `<span class="best">gentlest</span>` : ``) + `</span>` +
+          `<span class="m">${Math.round(rt.steepDown)} m steep ↓</span>`;
+        div.onclick = () => { ES.state.selected = idx; render(); };
+        sw.appendChild(div);
+      });
       reco.classList.add("show");
     } else {
       const chosen = routes[best];
@@ -241,24 +256,40 @@
 
   // ---- suggested trips list ----
   function ratingColor(r) { return getCss(r === "friendly" ? "--g-flat" : r === "moderate" ? "--g-down1" : "--g-down3"); }
-  function ratingLabel(r) { return r === "friendly" ? "Knee-friendly" : r === "moderate" ? "Moderate" : "Avoid ↓"; }
-  // Derive the rating from measured steep-downhill metres when we have them, so
-  // colour/label/order always agree with the analysis; fall back to the static
-  // hint until the metric has been computed.
+  function ratingLabel(r) { return r === "friendly" ? "Knee-friendly" : r === "moderate" ? "Moderate" : "Steep ↓"; }
+  const RATING_ORDER = ["friendly", "moderate", "avoid"];
+  // Rating from measured steep-downhill metres, relative to trip length —
+  // 100 m of steep trail is serious on a 1 km stroll, a footnote on 10 km.
+  function measuredRating(m) {
+    const friendlyCap = Math.max(50, m.dist * 0.015);
+    const moderateCap = Math.max(150, m.dist * 0.05);
+    return m.steepDown < friendlyCap ? "friendly" : m.steepDown < moderateCap ? "moderate" : "avoid";
+  }
+  // Blend measurement with the curated rating. Curated ratings come from
+  // walks that were actually done and verified, while the measurement rests
+  // on a ~30–90 m elevation model that invents slopes where a lakeside path
+  // hugs a hillside — so the measurement may refine a curated rating but
+  // never downgrade it by more than one level.
   function tripRating(t, metrics) {
     const m = metrics && metrics[t.id];
-    if (m && typeof m.steepDown === "number") {
-      return m.steepDown < 50 ? "friendly" : m.steepDown < 150 ? "moderate" : "avoid";
+    if (!m || typeof m.steepDown !== "number") return t.rating || "moderate";
+    let r = measuredRating(m);
+    if (t.rating) {
+      const cap = Math.min(RATING_ORDER.indexOf(t.rating) + 1, RATING_ORDER.length - 1);
+      if (RATING_ORDER.indexOf(r) > cap) r = RATING_ORDER[cap];
     }
-    return t.rating || "moderate";
+    return r;
   }
   function renderSuggestions(onSelect, metrics) {
     const wrap = $("suggestions");
     if (!wrap || !ES.trips) return;
     metrics = metrics || {};
     const list = ES.trips.all.slice().sort((a, b) => {
+      const ra = RATING_ORDER.indexOf(tripRating(a, metrics));
+      const rb = RATING_ORDER.indexOf(tripRating(b, metrics));
+      if (ra !== rb) return ra - rb;                      // blended rating first
       const ma = metrics[a.id], mb = metrics[b.id];
-      if (ma && mb) return ma.steepDown - mb.steepDown;   // least steep downhill first
+      if (ma && mb) return ma.steepDown - mb.steepDown;   // then least steep downhill
       if (ma) return -1; if (mb) return 1;
       return ES.trips.RANK[a.rating] - ES.trips.RANK[b.rating];
     });
@@ -362,7 +393,8 @@
       `<tr><td>Total descent ↓</td><td class="num">${Math.round(chosen.descent)} m</td></tr>` +
       `<tr><td>Max down grade</td><td class="num">${(chosen.maxDown * 100).toFixed(0)}%</td></tr>`;
     return `<div class="modal-title">${title}</div><div class="modal-lead">${lead}</div>` +
-      `<table class="cmp-table"><tbody>${rows}</tbody></table>`;
+      `<table class="cmp-table"><tbody>${rows}</tbody></table>` +
+      `<div class="hint" style="margin-top:8px">Tip: the two direction buttons under the verdict let you preview the loop the other way round.</div>`;
   }
 
   function compareSummary() {
@@ -390,5 +422,5 @@
       `<table class="cmp-table"><thead><tr><th></th><th>Trip 1</th><th>Trip 2</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
-  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, renderSavedTrips, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary };
+  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, renderSavedTrips, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary, measuredRating, tripRating };
 })();

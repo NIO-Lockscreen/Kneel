@@ -356,9 +356,12 @@
       return;
     }
     if (state.mode === "loop") {
-      state.selected = state.recommended = state.selected === 0 ? 1 : 0;
+      // flip only the VIEW — the recommendation itself doesn't change
+      state.selected = state.selected === 0 ? 1 : 0;
       ui.render();
-      setStatus("Showing the other direction around the loop.");
+      setStatus(state.selected === state.recommended
+        ? "Back to the recommended direction."
+        : "Showing the other direction around the loop.");
       return;
     }
     if (state.routes.length === 1) {
@@ -575,8 +578,8 @@
    * cache it. renderSuggestions then colours/sorts by the real numbers instead
    * of my hand-set guesses. */
   const REF_THR = 0.08;
-  // "v2" invalidates caches from before direction data was stored
-  function tripSig(t) { return "v2|" + (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
+  // "v3" invalidates caches from before DEM denoising and direction data
+  function tripSig(t) { return "v3|" + (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
 
   async function tripMetrics(t) {
     if (!t.waypoints || !t.waypoints.length) return null;

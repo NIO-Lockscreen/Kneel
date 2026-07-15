@@ -9,16 +9,35 @@
   // steps are far steeper and more jarring than the smoothed DEM ever shows.
   const STAIR_LOAD = 1.0;
 
+  // DEM noise guard: an unbroken up- or down-run whose total height change is
+  // under `eps` metres is almost certainly elevation-model noise (the public
+  // DEM is ~30–90 m resolution), not a real hill — flatten it so it can't
+  // masquerade as steep downhill and scare people off genuinely flat loops.
+  function denoise(elev, eps) {
+    const dh = [];
+    for (let i = 0; i < elev.length - 1; i++) dh.push(elev[i + 1] - elev[i]);
+    let i = 0;
+    while (i < dh.length) {
+      const s = Math.sign(dh[i]);
+      let j = i, total = 0;
+      while (j < dh.length && Math.sign(dh[j]) === s) { total += dh[j]; j++; }
+      if (s !== 0 && Math.abs(total) < eps) for (let k = i; k < j; k++) dh[k] = 0;
+      i = j;
+    }
+    return dh;
+  }
+
   // analyse one ordered (pts, elev) pair in its given direction.
   // `stairs` is an optional per-segment boolean mask (OSM highway=steps).
   function analyse(pts, elev, thr, stairs) {
     const { haversine } = ES.geo;
     let dist = 0, ascent = 0, descent = 0, steepDown = 0, stairsDown = 0, kneeLoad = 0, time = 0, maxDown = 0;
     const cum = [0], grades = [];
+    const dhs = denoise(elev, (ES.config && ES.config.noiseFloor) || 3);
     for (let i = 0; i < pts.length - 1; i++) {
       const d = haversine(pts[i], pts[i + 1]); cum.push(cum[i] + d);
       if (d < 0.5) { grades.push(0); continue; }
-      const dh = elev[i + 1] - elev[i], grade = dh / d;
+      const dh = dhs[i], grade = dh / d;
       grades.push(grade); dist += d;
       if (dh > 0) ascent += dh; else descent += -dh;
       const downStairs = stairs && stairs[i] && dh <= 0;
@@ -73,5 +92,5 @@
     return best;
   }
 
-  ES.analysis = { analyse, reverseSeries, reversed, pickWithinDetour };
+  ES.analysis = { analyse, denoise, reverseSeries, reversed, pickWithinDetour };
 })();
