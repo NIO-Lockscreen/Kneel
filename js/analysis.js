@@ -17,15 +17,28 @@
     dem: { medianR: 0, smoothR: 60, noise: 3 },  // ~90 m DEM, whole metres
   };
 
-  // Knee load per metre of height lost. Descent gentler than your limit still
-  // costs a little (the knee is still braking), but descent steeper than the
-  // limit is what hurts — and it hurts more the steeper it is. Without the
-  // split the limit would scale every route's load by the same 1/thr², so it
-  // could never change which route or direction is recommended.
+  // Knee load per metre of height lost, at down-grade g with your limit thr.
+  //
+  // Under the limit the knee brakes but doesn't hurt. Then what loads it is
+  // the height you lose; its share of absorbing it grows only mildly with
+  // steepness: ≈38% of the energy at a 10% grade, ≈54% at 45% (knee work on
+  // −6…−24° ramps, Schwameder, Roithner & Müller, ISBS 2000). `kneeShare`
+  // fits that, so a gentle descent costs about the same per metre of height
+  // whatever its grade.
+  //
+  // Over the limit it hurts, and more the steeper it gets: peak kneecap force
+  // climbs from ~1× body weight on the level to ~3.5× at 32% (Alexander &
+  // Schwameder, ISBS 2016). How pain scales with that force is personal and
+  // not measured, so the r² growth and GENTLE_W are preferences — but varying
+  // GENTLE_W from 0.1 to 0.5 and the growth from r to r³ changes no
+  // recommended direction or route on the curated trips. The split itself
+  // matters: without it the limit would scale every route's load by the same
+  // factor and could never change which route or direction is recommended.
   const GENTLE_W = 0.25;
+  const kneeShare = (g) => 0.35 + 0.45 * g;
   function descentWeight(g, thr) {
-    const r = g / thr;
-    return (g > thr ? 1 : GENTLE_W) * r * r;
+    const share = kneeShare(g) / kneeShare(thr), r = g / thr;
+    return g > thr ? r * r * share : GENTLE_W * share;
   }
 
   // Descending stairs load the knee at least like an 18% down-slope per metre
@@ -66,9 +79,59 @@
     return rot.slice(n - off).concat(rot.slice(0, n - off));
   }
 
+  // OSM incline tag → +1 up / −1 down (along the way's node order), 0 unknown
+  function inclineSign(v) {
+    if (v === "up") return 1;
+    if (v === "down") return -1;
+    const x = parseFloat(v);
+    return isFinite(x) && x !== 0 ? Math.sign(x) : 0;
+  }
+
+  // Which parts of a route run on OSM steps, matched EXACTLY: a route edge is
+  // on a stair way when its two OSM nodes (the router reports the ids it
+  // used, as geom.nodes) are consecutive nodes of that way. A ramp beside the
+  // steps or a street past their foot uses other nodes, so it never matches.
+  // Returns per resampled segment { share: 0..1 on steps, dir: −1 down /
+  // +1 up / 0 unknown (no incline tag) } — or null when there are no steps.
+  function stairsAlong(geom, pts, ways) {
+    if (!ways || !ways.length || !geom || !geom.nodes) return null;
+    const edges = new Map(); // "a,b" → direction when walking from a to b
+    ways.forEach((w) => {
+      const inc = inclineSign(w.incline);
+      for (let k = 0; k < w.nodes.length - 1; k++) {
+        edges.set(w.nodes[k] + "," + w.nodes[k + 1], inc);
+        edges.set(w.nodes[k + 1] + "," + w.nodes[k], -inc);
+      }
+    });
+    const spans = []; // stretches of the route on steps, in metres from the start
+    let s = 0;
+    for (let k = 0; k < geom.length - 1; k++) {
+      const d = ES.geo.haversine(geom[k], geom[k + 1]);
+      const key = geom.nodes[k] + "," + geom.nodes[k + 1];
+      if (d > 0 && edges.has(key)) spans.push({ a: s, b: s + d, dir: edges.get(key) });
+      s += d;
+    }
+    if (!spans.length) return null;
+    const n = pts.length - 1, share = new Array(n).fill(0), dir = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      const a = pts[i].s, b = pts[i + 1].s;
+      if (!(b > a)) continue;
+      let on = 0, up = 0, down = 0;
+      spans.forEach((sp) => {
+        const o = Math.min(b, sp.b) - Math.max(a, sp.a);
+        if (o <= 0) return;
+        on += o;
+        if (sp.dir > 0) up += o; else if (sp.dir < 0) down += o;
+      });
+      share[i] = Math.min(1, on / (b - a));
+      dir[i] = down > up ? -1 : up > down ? 1 : 0;
+    }
+    return { share, dir };
+  }
+
   // analyse one ordered (pts, elev) pair in its given direction.
-  // `stairs` is an optional per-segment share (0..1, or boolean) of the
-  // segment that runs on OSM highway=steps. `meta` = { source, closed }.
+  // `stairs` is an optional { share, dir } from stairsAlong, already in this
+  // walking direction. `meta` = { source, closed }.
   function analyse(pts, elev, thr, stairs, meta) {
     meta = meta || {};
     const eps = (SOURCES[meta.source] || SOURCES.dem).noise;
@@ -90,10 +153,11 @@
         load = -dh * descentWeight(g, thr);       // "equivalent steep metres"
         if (g > maxDown) maxDown = g;
       }
-      // stairs that don't clearly climb are counted as going down: the
-      // terrain model often can't tell which way a short flight runs
-      const sf = stairs ? +stairs[i] || 0 : 0;
-      if (sf > 0 && dh <= 0) {
+      // steps tagged up/down settle it; untagged steps count as going down
+      // unless the terrain clearly climbs (a short flight is often too small
+      // for the terrain model to show which way it runs)
+      const sf = stairs ? stairs.share[i] : 0, sd = stairs ? stairs.dir[i] : 0;
+      if (sf > 0 && (sd < 0 || (sd === 0 && dh <= 0))) {
         stairsDown += d * sf;
         steep = Math.max(steep, d * sf);
         load = Math.max(load, d * sf * stairPerM); // never lighter than the slope itself
@@ -111,10 +175,12 @@
   }
 
   // the same path walked the other way — used for direction advice.
-  // (reversing segment order also reverses the per-segment stair mask)
+  // (segment order reverses, and steps that went up now go down)
   function reversed(route, thr) {
     const rv = reverseSeries(route.pts, route.elev);
-    const st = route.stairs ? route.stairs.slice().reverse() : null;
+    const st = route.stairs
+      ? { share: route.stairs.share.slice().reverse(), dir: route.stairs.dir.slice().reverse().map((d) => -d) }
+      : null;
     return analyse(rv.pts, rv.elev, thr, st, route.meta);
   }
 
@@ -136,5 +202,5 @@
       .reduce((a, b) => (routes[b].dist < routes[a].dist ? b : a));
   }
 
-  ES.analysis = { analyse, cleanProfile, denoise, descentWeight, reverseSeries, reversed, pickWithinDetour };
+  ES.analysis = { analyse, cleanProfile, denoise, descentWeight, stairsAlong, reverseSeries, reversed, pickWithinDetour };
 })();

@@ -20,20 +20,31 @@
     return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
   }
 
-  // resample a polyline to ~spacing metres, capped at maxN points. Each output
-  // point carries `s`, its distance ALONG the path — use that (not the
-  // straight-line chord between samples) for grades: at bends, switchbacks and
-  // out-and-back turnarounds the chord can be a fraction of the walked distance.
+  // resample a polyline every `spacing` metres (widened if that would exceed
+  // maxN points). Each output point carries `s`, its distance ALONG the path —
+  // use that (not the straight-line chord between samples) for grades: at
+  // bends, switchbacks and out-and-back turnarounds the chord can be a
+  // fraction of the walked distance.
+  // Samples step a fixed distance out from BOTH ends (meeting in the middle),
+  // so alternative routes that share their start or finish get identical
+  // sample points there, and their elevations are fetched only once.
   function resample(line, spacing, maxN) {
     if (line.length < 2) return line.map((p) => ({ lat: p.lat, lng: p.lng, s: 0 }));
     const cum = [0];
     for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + haversine(line[i - 1], line[i]));
     const total = cum[cum.length - 1];
-    const n = Math.max(2, Math.min(maxN, Math.round(total / spacing) + 1));
-    const step = total / (n - 1), out = [];
+    const step = Math.max(spacing, total / Math.max(1, maxN - 1)) || 1;
+    const head = [], tail = [];
+    for (let x = 0; x <= total / 2; x += step) head.push(x);
+    for (let x = total; x > total / 2; x -= step) tail.push(x);
+    tail.reverse();
+    // where the two meet, keep the gap between ½ and 1½ steps
+    const gap = tail.length ? tail[0] - head[head.length - 1] : 0;
+    if (gap < step / 2 && head.length > 1) head.pop();
+    else if (gap > step * 1.5) head.push(head[head.length - 1] + gap / 2);
+    const targets = head.concat(tail.length ? tail : [total]), out = [];
     let j = 0;
-    for (let k = 0; k < n; k++) {
-      const target = k === n - 1 ? total : k * step;
+    for (const target of targets) {
       while (j < line.length - 2 && cum[j + 1] < target) j++;
       const len = cum[j + 1] - cum[j];
       const t = len ? Math.min(1, Math.max(0, (target - cum[j]) / len)) : 0;

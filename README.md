@@ -25,13 +25,18 @@ for loops, tells you which **direction** spares your knees.
   probes **side-path detours** (via-points pushed out to each side of the
   direct line), so "Suggest a gentler route" has real options even where the
   router returns just one path.
-- **Stairs detection**: flags OpenStreetMap `highway=steps` on the route (via
-  Overpass) and treats **descending stairs** as the most jarring thing a knee
-  can meet — they're drawn **dashed red** on the map and profile, counted in
-  the knee load, and called out in the recommendation.
+- **Stairs detection**: flags OpenStreetMap `highway=steps` the route actually
+  walks — matched exactly by the OSM nodes the router used (via Overpass), so
+  a ramp beside the steps or a street past their foot never counts — and uses
+  the steps' `incline` tag for their direction where it's mapped. **Descending
+  stairs** are treated as the most jarring thing a knee can meet: they're
+  drawn **dashed red** on the map and profile, counted in the knee load, and
+  called out in the recommendation.
 - **Pain threshold** slider: choose what down-grade counts as "painful". It
   drives the choice, not just the colours: descent over the limit dominates
-  the knee load (weighted by how steep it is), descent under it costs little.
+  the knee load (weighted by how steep it is), descent under it costs little
+  and about the same per metre of height at any grade, as knee-work
+  measurements on ramps suggest (sources in `js/analysis.js`).
 - **Acceptable detour** slider + **Suggest a gentler route** button: trade a bit
   of extra distance for less steep descent, capped at the detour you allow.
   Near-ties in knee load go to the **shorter** route, so a barely-gentler
@@ -85,7 +90,8 @@ namespace, so they work both from `file://` and when deployed.
 
 ## Data & disclaimer
 
-Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Kartverket's
+Map: Kartverket grey-tone map in Norway over OpenStreetMap elsewhere (both
+key-free). Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Kartverket's
 national terrain model (DTM 1 m, ws.geonorge.no) in Norway, Open-Meteo DEM
 (~90 m) elsewhere. Stairs: OpenStreetMap via Overpass. Geocoding: Nominatim
 (OpenStreetMap). Planning aid only — not medical advice. Grades from the

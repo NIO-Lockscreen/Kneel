@@ -7,11 +7,19 @@
 
   /* ---------- map ---------- */
   const map = L.map("map", { zoomControl: true }).setView(config.center, config.zoom);
-  const positron = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd", maxZoom: 19, attribution: "&copy; OpenStreetMap &copy; CARTO" }).addTo(map);
+  // "Clean map": Kartverket's grey-tone map in Norway, on top of a greyed-out
+  // OpenStreetMap for everywhere else (Kartverket tiles are transparent
+  // outside Norway, so OSM shows through). Both are key-free; CARTO's
+  // basemaps, used before, now serve "API key required" tiles.
+  const clean = L.layerGroup([
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, className: "tiles-muted", attribution: "&copy; OpenStreetMap contributors" }),
+    L.tileLayer("https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png", {
+      maxZoom: 19, maxNativeZoom: 18, attribution: "&copy; Kartverket" }),
+  ]).addTo(map);
   const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
     subdomains: "abc", maxZoom: 17, attribution: "&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap (CC-BY-SA)" });
-  L.control.layers({ "Clean map": positron, "Topographic (contours)": topo }, null, { position: "topright" }).addTo(map);
+  L.control.layers({ "Clean map": clean, "Topographic (contours)": topo }, null, { position: "topright" }).addTo(map);
 
   ES.map = map;
   ES.layers = {
@@ -167,48 +175,6 @@
     } catch (err) { return []; } // Overpass unavailable: analyse without stair data
   }
 
-  // Per-segment share (0..1) of a resampled route that runs ALONG a stair way:
-  // sub-points of the segment must lie within a few metres of the steps AND
-  // the segment must run roughly parallel to them. A route that only passes
-  // the top or bottom of a staircase (crossing its end) isn't on it.
-  // Returns null when no segment touches stairs.
-  function stairMask(pts, ways) {
-    if (!ways.length) return null;
-    const NEAR = 4, SUB = [0.1, 0.3, 0.5, 0.7, 0.9], PAD = 0.0001; // PAD ≈ 11 m (lng ×2 at 63°N)
-    const boxes = ways.map((wy) => {
-      const la = wy.map((p) => p.lat), ln = wy.map((p) => p.lng);
-      return { s: Math.min(...la) - PAD, n: Math.max(...la) + PAD, w: Math.min(...ln) - 2 * PAD, e: Math.max(...ln) + 2 * PAD };
-    });
-    const along = (p, brg, wy) => {
-      for (let k = 0; k < wy.length - 1; k++) {
-        if (geo.distToSegment(p, wy[k], wy[k + 1]) > NEAR) continue;
-        const diff = Math.abs(brg - geo.bearing(wy[k], wy[k + 1])) % 180;
-        if (Math.min(diff, 180 - diff) <= 35) return true;
-      }
-      return false;
-    };
-    const mask = new Array(pts.length - 1).fill(0);
-    let any = false;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const near = ways.filter((wy, k) => {
-        const bx = boxes[k];
-        return Math.max(a.lat, b.lat) >= bx.s && Math.min(a.lat, b.lat) <= bx.n &&
-               Math.max(a.lng, b.lng) >= bx.w && Math.min(a.lng, b.lng) <= bx.e;
-      });
-      if (!near.length || geo.haversine(a, b) < 0.5) continue;
-      const brg = geo.bearing(a, b);
-      let hits = 0;
-      for (const f of SUB) {
-        const p = { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f };
-        if (near.some((wy) => along(p, brg, wy))) hits++;
-      }
-      mask[i] = hits / SUB.length;
-      any = any || hits > 0;
-    }
-    return any ? mask : null;
-  }
-
   // Build & elevation-tag every geometry returned by the router. All
   // candidates are resampled at ONE spacing and read from ONE elevation
   // source, so their grades are smoothed alike and stay comparable (longer
@@ -229,7 +195,7 @@
       return {
         pts,
         elev: analysis.cleanProfile(elevs[i], step, source, closed),
-        stairs: stairMask(pts, stairWays),
+        stairs: analysis.stairsAlong(geoms[i], pts, stairWays),
         meta: { source, closed: !!closed },
       };
     });
