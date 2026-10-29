@@ -23,9 +23,47 @@
   function fmtM(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 2) + " km" : Math.round(m) + " m"; }
   function fmtTime(s) { const m = Math.round(s / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " min" : m + " min"; }
 
-  // is segment i descending stairs? (drawn dashed red — the worst for knees)
+  function pct(g) { return (g * 100).toFixed(0) + "%"; }
+
+  // is segment i descending stairs? (drawn dashed red — the worst for knees).
+  // Uses the scorer's own verdict so the map shows exactly what was counted.
   function isDownStairs(route, i) {
-    return !!(route.stairs && route.stairs[i] && route.elev[i + 1] <= route.elev[i]);
+    return !!(route.downStairs && route.downStairs[i]);
+  }
+
+  // Loads within 15% (+2) of each other count as "about the same".
+  function similarLoad(a, b) {
+    return Math.max(a.kneeLoad, b.kneeLoad) <= Math.min(a.kneeLoad, b.kneeLoad) * 1.15 + 2;
+  }
+
+  // Why `chosen` (the lower knee load) beats `other`, in words that agree
+  // with the steep-downhill numbers printed next to it. Knee load weighs HOW
+  // steep each descent is, so occasionally the gentler pick has MORE metres
+  // over the limit than the alternative — then say what actually decides it
+  // instead of claiming a saving that isn't there.
+  function whyGentler(chosen, other) {
+    const saved = Math.round(other.steepDown - chosen.steepDown);
+    if (saved > 3) return { saved, text: `saving <b>${saved} m</b> of steep descent` };
+    if (saved < -3) {
+      const worse = other.maxDown > chosen.maxDown + 0.01 ? ` (up to ${pct(other.maxDown)} vs ${pct(chosen.maxDown)})` : ``;
+      return { saved, text: `the alternative has ${-saved} m less trail over your limit, but what it has is much steeper${worse}, which is harder on the knees` };
+    }
+    return { saved, text: `less of the descent is near or over your limit` };
+  }
+
+  // Does walking a loop one way round really matter? Yes when the knee load
+  // clearly differs, or one way has clearly more steep downhill.
+  function directionMatters(chosen, other) {
+    return !similarLoad(chosen, other) || other.steepDown - chosen.steepDown > 10;
+  }
+
+  // When it doesn't, the two ways can still differ in kind — say so, so the
+  // "either way" verdict doesn't sit next to very different numbers unexplained.
+  function tradeOffNote(chosen, other) {
+    const d = Math.round(chosen.steepDown - other.steepDown);
+    if (d <= 10) return "";
+    const peak = other.maxDown > chosen.maxDown + 0.01 ? ` (up to ${pct(other.maxDown)} vs ${pct(chosen.maxDown)})` : ``;
+    return `It's a trade-off: the reverse has ${d} m less trail over your limit, but steeper descents${peak}.`;
   }
 
   // ---- map: coloured route + start/direction decorations ----
@@ -100,21 +138,18 @@
 
     if (ES.state.mode === "loop") {
       const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
-      const saved = Math.round(other.steepDown - chosen.steepDown);
-      // "direction matters" when it saves steep metres OR clearly lowers knee load
-      const meaningful = saved > 3 || other.kneeLoad > chosen.kneeLoad * 1.15 + 2;
+      const meaningful = directionMatters(chosen, other);
+      const why = whyGentler(chosen, other);
       verdict.innerHTML = meaningful
         ? `Follow the <span class="arrow">➤</span> <b>recommended direction</b> around the loop.`
-        : `This loop is gentle <b>either direction</b>.`;
+        : `This loop is about as gentle <b>either direction</b>.`;
       delta.innerHTML =
         `Recommended direction · steep downhill <b>${Math.round(chosen.steepDown)} m</b><br>` +
         `Reverse direction · steep downhill <b>${Math.round(other.steepDown)} m</b>` +
         (chosen.stairsDown > 5 ? `<br>Includes <b style="color:var(--g-down3)">~${Math.round(chosen.stairsDown)} m of descending stairs</b> (dashed red).` : ``) +
         (meaningful
-          ? (saved > 3
-            ? `<br>→ the recommended way takes the steep side <b>uphill</b>, saving <b>${saved} m</b> of jarring descent. Same loop and same points — just follow the arrow.`
-            : `<br>→ the recommended way keeps the descents gentler overall (less time going down near your limit). Same loop — just follow the arrow.`)
-          : ``) +
+          ? `<br>→ the recommended way takes the steeper side <b>uphill</b>: ${why.text}. Same loop and same points — just follow the arrow.`
+          : (tradeOffNote(chosen, other) ? `<br>→ ${tradeOffNote(chosen, other)}` : ``)) +
         (ES.state.selected !== best
           ? `<br>⟲ The map is showing the <b>other direction</b> — colours and arrow are for walking it that way.`
           : ``);
@@ -126,32 +161,33 @@
         div.className = "opt" + (idx === ES.state.selected ? " sel" : "");
         div.innerHTML = `<span>${idx === best ? "Recommended direction ➤" : "Other direction ⟲"}` +
           (idx === best ? `<span class="best">gentlest</span>` : ``) + `</span>` +
-          `<span class="m">${Math.round(rt.steepDown)} m steep ↓</span>`;
+          `<span class="m">${Math.round(rt.steepDown)} m steep ↓ · max ${pct(rt.maxDown)}</span>`;
         div.onclick = () => { ES.state.selected = idx; render(); };
         sw.appendChild(div);
       });
       reco.classList.add("show");
     } else {
-      const chosen = routes[best];
+      // the card describes the route ON THE MAP (and stats), which is the
+      // recommendation unless the user tapped another option
+      const sel = ES.state.selected, shown = routes[sel] || routes[best];
       const shortest = Math.min(...routes.map((r) => r.dist));
-      const extra = Math.round(chosen.dist - shortest);
-      verdict.innerHTML = routes.length > 1
-        ? `Gentlest of ${routes.length} routes selected${extra > 5 ? ` (+${fmtM(extra)} detour)` : ``}.`
-        : `Route analysed.`;
+      const extra = Math.round(routes[best].dist - shortest);
+      verdict.innerHTML = routes.length < 2 ? `Route analysed.`
+        : sel === best ? `Gentlest of ${routes.length} routes selected${extra > 5 ? ` (+${fmtM(extra)} detour)` : ``}.`
+        : `Showing Route ${sel + 1} — <b>Route ${best + 1}</b> is the gentlest within your detour.`;
       let tip = "";
       if (ES.state.mode === "ab" && ES.state.waypoints.length === 2) {
         // would the same walk be kinder the other way round?
-        const shown = routes[ES.state.selected] || chosen;
         const rev = ES.analysis.reversed(shown, ES.state.thr);
         const savedRev = Math.round(shown.steepDown - rev.steepDown);
         if (rev.kneeLoad < shown.kneeLoad * 0.8 - 2 && savedRev > 5) {
           tip = `<br>💡 Walking this route <b>the other way (B → A)</b> would cut the steep downhill by <b>${savedRev} m</b> — the climbs and descents swap. Worth considering if you can start from the other end (e.g. bus one way).`;
         }
       }
-      const stairNote = chosen.stairsDown > 5
-        ? ` Includes <b style="color:var(--g-down3)">~${Math.round(chosen.stairsDown)} m of descending stairs</b> (dashed red) — the hardest thing for sore knees.`
+      const stairNote = shown.stairsDown > 5
+        ? ` Includes <b style="color:var(--g-down3)">~${Math.round(shown.stairsDown)} m of descending stairs</b> (dashed red) — the hardest thing for sore knees.`
         : ``;
-      delta.innerHTML = `Steep downhill on this route: <b>${Math.round(chosen.steepDown)} m</b> of trail steeper than ${Math.round(ES.state.thr * 100)}%.` + stairNote + tip;
+      delta.innerHTML = `Steep downhill on this route: <b>${Math.round(shown.steepDown)} m</b> of trail steeper than ${Math.round(ES.state.thr * 100)}%.` + stairNote + tip;
       reco.classList.add("show");
       if (routes.length > 1) {
         sw.style.display = "flex";
@@ -161,13 +197,18 @@
           div.className = "opt" + (i === ES.state.selected ? " sel" : "");
           div.innerHTML = `<span>Route ${i + 1} · ${fmtM(rt.dist)}${extraI > 5 ? ` (+${fmtM(extraI)})` : ``}` +
             (i === best ? `<span class="best">gentlest</span>` : ``) + `</span>` +
-            `<span class="m">${Math.round(rt.steepDown)} m steep ↓</span>`;
+            `<span class="m">${Math.round(rt.steepDown)} m steep ↓ · max ${pct(rt.maxDown)}</span>`;
           div.onclick = () => { ES.state.selected = i; render(); };
           sw.appendChild(div);
         });
       }
     }
+    if (routes.some(isStraight)) delta.innerHTML = STRAIGHT_WARN + delta.innerHTML;
   }
+
+  // routes scored off a straight line because routing failed (see app.js)
+  function isStraight(r) { return !!(r && r.meta && r.meta.straight); }
+  const STRAIGHT_WARN = `<b style="color:var(--g-down3)">⚠ Straight-line estimate — the routing service didn't answer, so this isn't the real walking path. Try again in a moment.</b><br>`;
 
   function drawWaypoints() {
     ES.layers.marker.clearLayers();
@@ -199,11 +240,13 @@
       L.polyline(rt.pts.map((p) => [p.lat, p.lng]),
         { color: "#7a8a80", weight: 4, opacity: .55, dashArray: "4 6", lineCap: "round" }).addTo(routeLayer);
     });
-    // focused trip on top, grade-coloured
-    const p = routes[focus].pts, grades = routes[focus].grades;
+    // focused trip on top, grade-coloured (descending stairs dashed red)
+    const rt = routes[focus], p = rt.pts;
     for (let i = 0; i < p.length - 1; i++) {
+      const stair = isDownStairs(rt, i);
       L.polyline([[p[i].lat, p[i].lng], [p[i + 1].lat, p[i + 1].lng]],
-        { color: gradeColor(grades[i], ES.state.thr), weight: 6, opacity: .95, lineCap: "round" }).addTo(routeLayer);
+        { color: stair ? getCss("--g-down3") : gradeColor(rt.grades[i], ES.state.thr),
+          weight: 6, opacity: .95, lineCap: "round", dashArray: stair ? "3 8" : null }).addTo(routeLayer);
     }
     L.marker([p[0].lat, p[0].lng], { icon: L.divIcon({ className: "", html: '<div class="start-ico"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(decoLayer);
   }
@@ -221,12 +264,13 @@
     if (routes.length < 2) return;
     const a = routes[0], b = routes[1];
     const gentler = a.kneeLoad <= b.kneeLoad ? 0 : 1;
-    const dSteep = Math.round(Math.abs(a.steepDown - b.steepDown));
-    const verdict = dSteep > 5
-      ? `Trip ${gentler + 1} is gentler on the knees — <b>${dSteep} m</b> less steep downhill.`
-      : `Both trips are similarly gentle on the knees.`;
+    const why = whyGentler(routes[gentler], routes[1 - gentler]);
+    const verdict = similarLoad(a, b) && Math.abs(why.saved) <= 10
+      ? `Both trips are similarly gentle on the knees.`
+      : `Trip ${gentler + 1} is gentler on the knees — ${why.text}.`;
     const body = $("compareBody");
     body.innerHTML =
+      (routes.some(isStraight) ? `<div class="hint">${STRAIGHT_WARN}</div>` : ``) +
       `<div class="cmp-verdict">${verdict}</div>` +
       `<table class="cmp-table"><thead><tr><th></th><th>Trip 1</th><th>Trip 2</th></tr></thead><tbody>` +
       cmpRow("Steep downhill", (r) => Math.round(r.steepDown) + " m", a, b, "steepDown") +
@@ -375,14 +419,12 @@
   function loopSummary() {
     const routes = ES.state.routes, best = ES.state.recommended;
     const chosen = routes[best], other = routes[best === 0 ? 1 : 0];
-    const saved = Math.round(other.steepDown - chosen.steepDown);
-    const gentleEither = saved <= 3 && other.kneeLoad <= chosen.kneeLoad * 1.15 + 2;
-    const title = gentleEither ? "This loop is gentle either direction" : "Recommended walking direction";
+    const gentleEither = !directionMatters(chosen, other);
+    const why = whyGentler(chosen, other);
+    const title = gentleEither ? "This loop is about as gentle either direction" : "Recommended walking direction";
     const lead = gentleEither
-      ? `It's about the same both ways here, so walk it whichever direction you prefer — your points and the path don't change.`
-      : saved > 3
-        ? `The <b>recommended direction</b> (shown by the arrow on the map) is gentler than the reverse — about <b>${saved} m</b> less steep downhill, because it takes the steep side <b>uphill</b>. You still walk the same loop through the same numbered points; only the direction of travel changes.`
-        : `The <b>recommended direction</b> (shown by the arrow on the map) keeps the descents gentler overall — less of the walk goes downhill near your steepness limit. Same loop, same points; only the direction of travel changes.`;
+      ? `It's about the same both ways here, so walk it whichever direction you prefer — your points and the path don't change. ${tradeOffNote(chosen, other)}`
+      : `The <b>recommended direction</b> (shown by the arrow on the map) is gentler than the reverse because it takes the steeper side <b>uphill</b>: ${why.text}. You still walk the same loop through the same numbered points; only the direction of travel changes.`;
     const rows =
       `<tr><td>Steep downhill · recommended</td><td class="num win">${Math.round(chosen.steepDown)} m</td></tr>` +
       `<tr><td>Steep downhill · reverse</td><td class="num">${Math.round(other.steepDown)} m</td></tr>` +
@@ -401,15 +443,16 @@
     const [a, b] = ES.state.routes;
     const gentler = a.kneeLoad <= b.kneeLoad ? 0 : 1;
     const faster = a.time <= b.time ? 0 : 1;
-    const dSteep = Math.round(Math.abs(a.steepDown - b.steepDown));
+    const why = whyGentler(gentler === 0 ? a : b, gentler === 0 ? b : a);
+    const similar = similarLoad(a, b) && Math.abs(why.saved) <= 10;
     const dMin = Math.round(Math.abs(a.time - b.time) / 60);
     let lead;
     if (gentler === faster) {
-      lead = `<b>Trip ${gentler + 1}</b> wins on both counts — it's gentler on the knees${dSteep > 5 ? ` (${dSteep} m less steep downhill)` : ``} and the quicker walk${dMin >= 1 ? ` by ${dMin} min` : ``}.`;
-    } else if (dSteep <= 5) {
+      lead = `<b>Trip ${gentler + 1}</b> wins on both counts — it's gentler on the knees${similar ? `` : ` (${why.text})`} and the quicker walk${dMin >= 1 ? ` by ${dMin} min` : ``}.`;
+    } else if (similar) {
       lead = `The two are about equally kind to the knees, so go with <b>Trip ${faster + 1}</b> — it's faster${dMin >= 1 ? ` by ${dMin} min` : ``}.`;
     } else {
-      lead = `<b>Trip ${faster + 1}</b> is faster${dMin >= 1 ? ` by ${dMin} min` : ``}, but <b>Trip ${gentler + 1}</b> is gentler on the knees — ${dSteep} m less steep downhill. For sore knees, take Trip ${gentler + 1}.`;
+      lead = `<b>Trip ${faster + 1}</b> is faster${dMin >= 1 ? ` by ${dMin} min` : ``}, but <b>Trip ${gentler + 1}</b> is gentler on the knees — ${why.text}. For sore knees, take Trip ${gentler + 1}.`;
     }
     const cell = (lower, val) => `<td class="num${lower ? " win" : ""}">${val}</td>`;
     const rows =
@@ -422,5 +465,5 @@
       `<table class="cmp-table"><thead><tr><th></th><th>Trip 1</th><th>Trip 2</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
-  ES.ui = { gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, renderSavedTrips, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary, measuredRating, tripRating };
+  ES.ui = { similarLoad, whyGentler, directionMatters, tradeOffNote, gradeColor, fmtM, fmtTime, drawRoute, drawProfile, fillStats, showReco, drawWaypoints, render, renderCompare, renderSuggestions, renderSavedTrips, resetResults, updateGoEnabled, showModal, hideModal, loopSummary, compareSummary, measuredRating, tripRating };
 })();

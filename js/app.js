@@ -7,11 +7,19 @@
 
   /* ---------- map ---------- */
   const map = L.map("map", { zoomControl: true }).setView(config.center, config.zoom);
-  const positron = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd", maxZoom: 19, attribution: "&copy; OpenStreetMap &copy; CARTO" }).addTo(map);
+  // "Clean map": Kartverket's grey-tone map in Norway, on top of a greyed-out
+  // OpenStreetMap for everywhere else (Kartverket tiles are transparent
+  // outside Norway, so OSM shows through). Both are key-free; CARTO's
+  // basemaps, used before, now serve "API key required" tiles.
+  const clean = L.layerGroup([
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, className: "tiles-muted", attribution: "&copy; OpenStreetMap contributors" }),
+    L.tileLayer("https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png", {
+      maxZoom: 19, maxNativeZoom: 18, attribution: "&copy; Kartverket" }),
+  ]).addTo(map);
   const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
     subdomains: "abc", maxZoom: 17, attribution: "&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap (CC-BY-SA)" });
-  L.control.layers({ "Clean map": positron, "Topographic (contours)": topo }, null, { position: "topright" }).addTo(map);
+  L.control.layers({ "Clean map": clean, "Topographic (contours)": topo }, null, { position: "topright" }).addTo(map);
 
   ES.map = map;
   ES.layers = {
@@ -128,6 +136,7 @@
       const msgs = ["Tap the destination of trip 1.", "Tap the start of trip 2.", "Tap the destination of trip 2.", "Ready — tap “Route & analyse”."];
       setStatus(msgs[state.waypoints.length - 1] || "Ready — tap “Route & analyse”.");
     } else {
+      if (state.routes.length) ui.resetResults(); // a new point makes the old analysis stale
       state.waypoints.push(w);
       setStatus(state.waypoints.length < 3 ? `Add ${3 - state.waypoints.length} more point(s) around the lake.` : "Ready — tap “Route & analyse” to close the loop.");
     }
@@ -166,35 +175,30 @@
     } catch (err) { return []; } // Overpass unavailable: analyse without stair data
   }
 
-  // per-segment stair mask for a resampled route (null when no stairs nearby)
-  function stairMask(pts, ways) {
-    if (!ways.length) return null;
-    const NEAR = 10; // metres; resampled points sit close to the real geometry
-    const mask = new Array(pts.length - 1);
-    let any = false;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const mid = { lat: (pts[i].lat + pts[i + 1].lat) / 2, lng: (pts[i].lng + pts[i + 1].lng) / 2 };
-      mask[i] = ways.some((wy) => geo.nearPolyline(mid, wy, NEAR) ||
-        geo.nearPolyline(pts[i], wy, NEAR) || geo.nearPolyline(pts[i + 1], wy, NEAR));
-      any = any || mask[i];
-    }
-    return any ? mask : null;
-  }
-
-  // Build & elevation-tag every geometry returned by the router.
+  // Build & elevation-tag every geometry returned by the router. All
+  // candidates are resampled at ONE spacing and read from ONE elevation
+  // source, so their grades are smoothed alike and stay comparable (longer
+  // routes used to be sampled coarser, which made them look gentler).
+  // `closed` marks a loop, whose profile wraps around at the start/finish.
   // Quiet mode (background suggestion scoring) skips the stairs lookup to
   // keep Overpass traffic down.
-  async function buildRoutes(geoms, quiet) {
+  async function buildRoutes(geoms, quiet, closed) {
     const stairWays = quiet ? [] : await stairWaysFor(geoms);
-    const built = [];
-    for (const geom of geoms) {
-      const total = geom.reduce((a, _, i) => (i ? a + geo.haversine(geom[i - 1], geom[i]) : 0), 0);
-      const pts = geo.resample(geom, Math.max(config.sampleSpacing, total / config.maxRoutePoints), config.maxRoutePoints);
-      if (!quiet) setStatus(geoms.length > 1 ? `Reading elevation… (route ${built.length + 1}/${geoms.length})` : "Reading elevation…");
-      const elev = geo.smooth(await api.fetchElevation(pts), 2);
-      built.push({ pts, elev, stairs: stairMask(pts, stairWays) });
-    }
-    return built;
+    const want = geoms.every(api.inNorway) ? "dtm" : "dem";
+    const longest = Math.max(...geoms.map(geo.pathLength));
+    const spacing = Math.max(config.sampleSpacing[want], longest / config.maxRoutePoints[want]);
+    const ptsList = geoms.map((g) => geo.resample(g, spacing, Infinity));
+    if (!quiet) setStatus(geoms.length > 1 ? `Reading elevation for ${geoms.length} routes…` : "Reading elevation…");
+    const { source, elevs } = await api.fetchElevations(ptsList);
+    return ptsList.map((pts, i) => {
+      const step = pts.length > 1 ? pts[1].s - pts[0].s : spacing;
+      return {
+        pts,
+        elev: analysis.cleanProfile(elevs[i], step, source, closed),
+        stairs: analysis.stairsAlong(geoms[i], pts, stairWays),
+        meta: { source, closed: !!closed },
+      };
+    });
   }
 
   // Extra A→B candidates: route through a via point pushed sideways from the
@@ -236,13 +240,21 @@
     return geoms;
   }
 
+  // When the router is down or rate-limiting we can still score the straight
+  // line between the points, but that's not the walk (it may cross a lake or
+  // a hillside), so the result is flagged and the user is told — never
+  // presented as a normal "Done".
+  const STRAIGHT_MSG = "Routing service unreachable — this is a straight-line estimate between your points, not the walking path, so the knee advice may be wrong. Try again in a moment.";
+  function markStraight(built) { built.forEach((b) => { b.meta.straight = true; }); return built; }
+
   // route a single A→B pair and return its gentlest-within-detour option
   async function routePair(a, b) {
-    let geoms;
+    let geoms, straight = false;
     try { geoms = await abGeometries(a, b); }
-    catch (e) { geoms = [[a, b]]; }
-    const built = await buildRoutes(geoms);
-    const routes = built.map((x) => analysis.analyse(x.pts, x.elev, state.thr, x.stairs));
+    catch (e) { geoms = [[a, b]]; straight = true; }
+    let built = await buildRoutes(geoms);
+    if (straight) built = markStraight(built);
+    const routes = built.map((x) => analysis.analyse(x.pts, x.elev, state.thr, x.stairs, x.meta));
     return routes[analysis.pickWithinDetour(routes, detourBudget())];
   }
 
@@ -260,37 +272,41 @@
         state.selected = state.recommended;
         ui.renderCompare();
         ui.showModal(ui.compareSummary());
-        setStatus("Done. Solid = shown trip, dashed = the other. Green/blue is easy on the knees; red is steep downhill.");
+        const straightCmp = state.routes.some((r) => r.meta.straight);
+        setStatus(straightCmp ? STRAIGHT_MSG : "Done. Solid = shown trip, dashed = the other. Green/blue is easy on the knees; red is steep downhill.", straightCmp);
         return;
       }
 
       const wpts = state.mode === "loop" ? state.waypoints.concat([state.waypoints[0]]) : state.waypoints;
       setStatus("Finding walking route…");
-      let geoms;
+      let geoms, straight = false;
       try {
         geoms = state.mode === "ab" && wpts.length === 2
           ? await abGeometries(wpts[0], wpts[1])          // alternatives + via detours
           : await api.osrmRoute(wpts, false);             // fixed via points: one geometry
       } catch (routeErr) {
-        setStatus("Routing service unreachable — using straight-line estimate.", true);
         geoms = [wpts.slice()];
+        straight = true;
       }
-      const built = await buildRoutes(geoms);
+      let built = await buildRoutes(geoms, false, state.mode === "loop");
+      if (straight) built = markStraight(built);
+      state.searchedBudget = detourBudget();
 
       if (state.mode === "loop") {
-        const f = analysis.analyse(built[0].pts, built[0].elev, state.thr, built[0].stairs);
+        const b0 = built[0];
+        const f = analysis.analyse(b0.pts, b0.elev, state.thr, b0.stairs, b0.meta);
         const r = analysis.reversed(f, state.thr);
         state.routes = [f, r];
         state.recommended = r.kneeLoad < f.kneeLoad ? 1 : 0;
       } else {
-        state.routes = built.map((b) => analysis.analyse(b.pts, b.elev, state.thr, b.stairs));
+        state.routes = built.map((b) => analysis.analyse(b.pts, b.elev, state.thr, b.stairs, b.meta));
         state.recommended = analysis.pickWithinDetour(state.routes, detourBudget());
       }
       state.selected = state.recommended;
       ui.render();
       if (state.mode === "loop") ui.showModal(ui.loopSummary());
       else expandSheet(); // surface the stats on mobile
-      setStatus("Done. Green/blue is easy on the knees; red is the steep downhill to avoid.");
+      setStatus(straight ? STRAIGHT_MSG : "Done. Green/blue is easy on the knees; red is the steep downhill to avoid.", straight);
     } catch (err) {
       console.error(err);
       setStatus("Could not complete: " + err.message + ". Try again or move your points slightly.", true);
@@ -356,16 +372,21 @@
       return;
     }
     if (state.mode === "loop") {
-      // flip only the VIEW — the recommendation itself doesn't change
-      state.selected = state.selected === 0 ? 1 : 0;
-      ui.render();
-      setStatus(state.selected === state.recommended
-        ? "Back to the recommended direction."
-        : "Showing the other direction around the loop.");
+      // the gentler route round a loop IS the recommended direction — never
+      // flip to the harsher one here (the direction buttons preview that)
+      if (state.selected !== state.recommended) {
+        state.selected = state.recommended;
+        ui.render();
+        setStatus("Back on the recommended direction — the gentler way round.");
+      } else {
+        setStatus("You're already on the gentler direction. Tap “Other direction” below to preview the loop the other way round.");
+      }
       return;
     }
     if (state.routes.length === 1) {
-      setStatus("Only one distinct walking route exists here — I also tried detours to either side and found nothing different within your budget. Widening the acceptable-detour slider may open up more options.");
+      setStatus(state.waypoints.length > 2
+        ? "With stops along the way the route has to pass through each of them, so there's just this one. Remove the middle stops to let me look for gentler alternatives."
+        : "Only one distinct walking route here — I also tried detours to either side and found nothing different within your budget. Widen the acceptable detour (or tick “avoid … at almost any cost”), then tap “Route & analyse” again to search further.");
       return;
     }
     const best = analysis.pickWithinDetour(state.routes, detourBudget());
@@ -458,9 +479,13 @@
     state.detour = parseInt(e.target.value, 10) / 100;
     $("detourVal").textContent = e.target.value + "%";
     if (state.routes.length && state.mode === "ab") {
-      state.recommended = analysis.pickWithinDetour(state.routes, detourBudget());
-      if (state.selected >= state.routes.length) state.selected = state.recommended;
+      // the map follows the recommendation, so the card, badge and map agree
+      state.recommended = state.selected = analysis.pickWithinDetour(state.routes, detourBudget());
       ui.render();
+      // candidates longer than the old budget were never fetched
+      if (detourBudget() > state.searchedBudget) {
+        setStatus("Wider detour allowed — tap “Route & analyse” again to search for longer, gentler options.");
+      }
     }
   };
 
@@ -477,23 +502,22 @@
   };
 
   // Re-score existing routes after a threshold change (no new network calls).
+  // The limit now changes which route/direction is gentlest, so the map
+  // follows the new recommendation rather than keeping a stale pick.
   function rescore() {
     if (!state.routes.length) return;
+    const again = (rt) => analysis.analyse(rt.pts, rt.elev, state.thr, rt.stairs, rt.meta);
     if (state.mode === "compare") {
-      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr, rt.stairs));
+      state.routes = state.routes.map(again);
       state.recommended = state.routes[0].kneeLoad <= state.routes[1].kneeLoad ? 0 : 1;
       ui.renderCompare();
       return;
     }
-    if (state.mode === "loop") {
-      const a = state.routes[0], b = state.routes[1];
-      const f = analysis.analyse(a.pts, a.elev, state.thr, a.stairs), r = analysis.analyse(b.pts, b.elev, state.thr, b.stairs);
-      state.routes = [f, r]; state.recommended = r.kneeLoad < f.kneeLoad ? 1 : 0;
-    } else {
-      state.routes = state.routes.map((rt) => analysis.analyse(rt.pts, rt.elev, state.thr, rt.stairs));
-      state.recommended = analysis.pickWithinDetour(state.routes, detourBudget());
-    }
-    if (state.selected >= state.routes.length) state.selected = state.recommended;
+    state.routes = state.routes.map(again);
+    state.recommended = state.mode === "loop"
+      ? (state.routes[1].kneeLoad < state.routes[0].kneeLoad ? 1 : 0)
+      : analysis.pickWithinDetour(state.routes, detourBudget());
+    state.selected = state.recommended;
     ui.render();
   }
 
@@ -578,24 +602,26 @@
    * cache it. renderSuggestions then colours/sorts by the real numbers instead
    * of my hand-set guesses. */
   const REF_THR = 0.08;
-  // "v3" invalidates caches from before DEM denoising and direction data
-  function tripSig(t) { return "v3|" + (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
+  // "v4" invalidates caches scored before the terrain-model / walked-distance
+  // / threshold-aware scoring fixes (those numbers were wrong)
+  function tripSig(t) { return "v4|" + (t.waypoints || []).map((p) => p.lat.toFixed(4) + "," + p.lng.toFixed(4)).join(";"); }
 
   async function tripMetrics(t) {
     if (!t.waypoints || !t.waypoints.length) return null;
     let wpts = t.waypoints.slice();
     if (t.mode !== "ab") wpts = wpts.concat([wpts[0]]);
-    let geoms;
-    try { geoms = await api.osrmRoute(wpts, t.mode === "ab"); }
-    catch (e) { geoms = [wpts]; }
-    const built = await buildRoutes(geoms, true);
+    // no straight-line fallback here: a rating measured off a straight line
+    // would be cached as if it were the walk — on failure, keep the curated
+    // rating and measure again next visit
+    const geoms = await api.osrmRoute(wpts, t.mode === "ab");
+    const built = await buildRoutes(geoms, true, t.mode !== "ab");
     let best, dirSaved = 0;
     if (t.mode === "ab") {
-      const routes = built.map((x) => analysis.analyse(x.pts, x.elev, REF_THR));
+      const routes = built.map((x) => analysis.analyse(x.pts, x.elev, REF_THR, null, x.meta));
       best = routes[analysis.pickWithinDetour(routes, 0.25)];
     } else {
       const b0 = built[0];
-      const f = analysis.analyse(b0.pts, b0.elev, REF_THR);
+      const f = analysis.analyse(b0.pts, b0.elev, REF_THR, null, b0.meta);
       const r = analysis.reversed(f, REF_THR);
       best = r.kneeLoad < f.kneeLoad ? r : f;
       const worse = best === r ? f : r;
@@ -610,6 +636,9 @@
     for (const t of ES.trips.all) {
       const cached = metrics[t.id];
       if (cached && cached.sig === tripSig(t)) continue;     // already measured for these points
+      // background work yields to the user: don't compete with (and get the
+      // user's own request rate-limited by) a route they just asked for
+      while (state.busy) await new Promise((res) => setTimeout(res, 500));
       try {
         const m = await tripMetrics(t);
         if (m) { metrics[t.id] = m; store.setMetrics(metrics); ui.renderSuggestions(loadTrip, metrics); }

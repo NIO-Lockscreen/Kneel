@@ -157,6 +157,9 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .legend .sw{width:16px;height:5px;border-radius:3px;flex:none}
 /* map — explicit sizing so Leaflet always has a box to render into */
 #map{flex:1;min-width:0;height:100%;background:#dfe5db}
+/* OSM fallback under Kartverket's grey map: greyed so the grade colours of
+   the route (green/orange/red) don't compete with OSM's own road colours */
+.tiles-muted{filter:grayscale(1) contrast(.85) brightness(1.08)}
 .map-tip{position:absolute;z-index:500;left:50%;transform:translateX(-50%);top:10px;
   background:rgba(31,42,36,.9);color:#fff;font-size:12.5px;padding:7px 13px;border-radius:999px;pointer-events:none;white-space:nowrap}
 .arrow-ico{color:var(--accent);font-size:20px;font-weight:900;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;line-height:1}

@@ -20,28 +20,44 @@
     return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
   }
 
-  // resample a polyline to ~spacing metres, capped at maxN points
+  // resample a polyline every `spacing` metres (widened if that would exceed
+  // maxN points). Each output point carries `s`, its distance ALONG the path —
+  // use that (not the straight-line chord between samples) for grades: at
+  // bends, switchbacks and out-and-back turnarounds the chord can be a
+  // fraction of the walked distance.
+  // Samples step a fixed distance out from BOTH ends (meeting in the middle),
+  // so alternative routes that share their start or finish get identical
+  // sample points there, and their elevations are fetched only once.
   function resample(line, spacing, maxN) {
-    if (line.length < 2) return line.slice();
-    let total = 0;
-    for (let i = 0; i < line.length - 1; i++) total += haversine(line[i], line[i + 1]);
-    const n = Math.max(2, Math.min(maxN, Math.round(total / spacing) + 1));
-    const step = total / (n - 1), out = [line[0]];
-    let segI = 0, segStart = line[0], segLen = haversine(line[0], line[1]), acc = 0, target = step;
-    let segEnd = line[1];
-    while (out.length < n - 1) {
-      if (acc + segLen >= target) {
-        const t = (target - acc) / segLen;
-        out.push({ lat: segStart.lat + (segEnd.lat - segStart.lat) * t, lng: segStart.lng + (segEnd.lng - segStart.lng) * t });
-        target += step;
-      } else {
-        acc += segLen; segI++;
-        if (segI >= line.length - 1) break;
-        segStart = line[segI]; segEnd = line[segI + 1]; segLen = haversine(segStart, segEnd);
-      }
+    if (line.length < 2) return line.map((p) => ({ lat: p.lat, lng: p.lng, s: 0 }));
+    const cum = [0];
+    for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + haversine(line[i - 1], line[i]));
+    const total = cum[cum.length - 1];
+    const step = Math.max(spacing, total / Math.max(1, maxN - 1)) || 1;
+    const head = [], tail = [];
+    for (let x = 0; x <= total / 2; x += step) head.push(x);
+    for (let x = total; x > total / 2; x -= step) tail.push(x);
+    tail.reverse();
+    // where the two meet, keep the gap between ½ and 1½ steps
+    const gap = tail.length ? tail[0] - head[head.length - 1] : 0;
+    if (gap < step / 2 && head.length > 1) head.pop();
+    else if (gap > step * 1.5) head.push(head[head.length - 1] + gap / 2);
+    const targets = head.concat(tail.length ? tail : [total]), out = [];
+    let j = 0;
+    for (const target of targets) {
+      while (j < line.length - 2 && cum[j + 1] < target) j++;
+      const len = cum[j + 1] - cum[j];
+      const t = len ? Math.min(1, Math.max(0, (target - cum[j]) / len)) : 0;
+      out.push({ lat: line[j].lat + (line[j + 1].lat - line[j].lat) * t,
+                 lng: line[j].lng + (line[j + 1].lng - line[j].lng) * t, s: target });
     }
-    out.push(line[line.length - 1]);
     return out;
+  }
+
+  // walked distance between consecutive samples (falls back to the chord for
+  // points that didn't come from resample)
+  function segLength(a, b) {
+    return (a.s != null && b.s != null) ? Math.abs(b.s - a.s) : haversine(a, b);
   }
 
   // destination point: start at p, walk `dist` metres on compass bearing `brg`
@@ -109,17 +125,41 @@
     return true;
   }
 
-  // moving-average smoothing, window radius w
-  function smooth(arr, w) {
-    if (arr.length < 3) return arr.slice();
-    const out = new Array(arr.length);
-    for (let i = 0; i < arr.length; i++) {
-      let s = 0, c = 0;
-      for (let j = Math.max(0, i - w); j <= Math.min(arr.length - 1, i + w); j++) { s += arr[j]; c++; }
-      out[i] = s / c;
+  // Sliding-window filter, window radius w. `closed` means the series is a
+  // loop whose last sample is the first one again: the window wraps around
+  // the seam. Open series shrink the window symmetrically at the ends, so the
+  // first/last values aren't dragged towards their neighbours (a lopsided
+  // window there flattens the start and end, and on a loop that undercounts
+  // the descent of whichever direction goes downhill through the start).
+  function windowed(arr, w, closed, reduce) {
+    const n = arr.length;
+    if (n < 3 || w < 1) return arr.slice();
+    const out = new Array(n);
+    if (closed) {
+      const m = n - 1;
+      for (let i = 0; i < m; i++) {
+        const win = [];
+        for (let j = i - w; j <= i + w; j++) win.push(arr[((j % m) + m) % m]);
+        out[i] = reduce(win);
+      }
+      out[m] = out[0];
+    } else {
+      for (let i = 0; i < n; i++) {
+        const r = Math.min(w, i, n - 1 - i);
+        out[i] = reduce(arr.slice(i - r, i + r + 1));
+      }
     }
     return out;
   }
+  const mean = (win) => win.reduce((a, b) => a + b, 0) / win.length;
+  const mid = (win) => win.slice().sort((a, b) => a - b)[win.length >> 1];
 
-  ES.geo = { R, rad, haversine, bearing, resample, smooth, offset, pathLength, pointAt, distToSegment, nearPolyline, sameGeometry };
+  // moving-average smoothing
+  function smooth(arr, w, closed) { return windowed(arr, w, closed, mean); }
+  // running median: removes dips/spikes narrower than the window (e.g. a
+  // bridge over a stream, which a bare-earth terrain model shows as a ditch)
+  // while passing real ramps through unchanged
+  function median(arr, w, closed) { return windowed(arr, w, closed, mid); }
+
+  ES.geo = { R, rad, haversine, bearing, resample, segLength, smooth, median, offset, pathLength, pointAt, distToSegment, nearPolyline, sameGeometry };
 })();
