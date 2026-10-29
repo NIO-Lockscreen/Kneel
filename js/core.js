@@ -8,9 +8,10 @@
     center: [63.413, 10.38],   // Trondheim
     zoom: 12,
     elevationBatch: 100,       // Open-Meteo points per request
-    maxRoutePoints: 150,       // resample cap per route
-    sampleSpacing: 30,         // metres, minimum spacing when resampling
-    noiseFloor: 3,             // metres: up/down runs smaller than this are DEM noise
+    // resampling, per elevation source (see api.js): finer where the 1 m
+    // terrain model can actually resolve it
+    sampleSpacing: { dtm: 10, dem: 30 },   // metres, minimum spacing
+    maxRoutePoints: { dtm: 300, dem: 150 }, // cap per route
   };
 
   ES.state = {
@@ -22,6 +23,7 @@
     thr: 0.08,                 // pain threshold (down-grade fraction)
     detour: 0.25,              // max acceptable detour vs shortest route (fraction)
     avoidAll: false,           // ignore the detour cap: gentlest route at (almost) any cost
+    searchedBudget: 0,         // detour budget the current candidates were fetched with
     busy: false,
     editingId: null,           // id of the saved trip currently being edited, if any
   };

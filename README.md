@@ -13,11 +13,14 @@ for loops, tells you which **direction** spares your knees.
   buttons to **preview the other direction** on the map), and A → B tells you
   when walking the same route **the other way (B → A)** would cut the steep
   descent — handy if you can start from either end.
-- **DEM noise guard**: up/down wiggles with under ~3 m of total height change
-  are elevation-model noise, not hills — they're flattened before scoring so a
-  genuinely flat lakeside loop isn't painted steep. Suggested-trip ratings are
-  also **relative to distance** and can refine, but never fully override, the
-  curated walked-and-verified ratings.
+- **Accurate terrain in Norway**: elevations come from Kartverket's 1 m lidar
+  terrain model (falling back to Open-Meteo's ~90 m DEM elsewhere), sampled
+  every ~10 m along the path. A running median removes bridge "ditches" and a
+  noise floor flattens tiny up/down wiggles, so a genuinely flat lakeside loop
+  isn't painted steep. Grades use the distance actually walked, never the
+  straight-line chord (which inflates grades at bends and turnarounds).
+  Suggested-trip ratings are also **relative to distance** and can refine, but
+  never fully override, the curated walked-and-verified ratings.
 - **Wider route search**: besides the router's own alternatives, EasyStride
   probes **side-path detours** (via-points pushed out to each side of the
   direct line), so "Suggest a gentler route" has real options even where the
@@ -26,7 +29,9 @@ for loops, tells you which **direction** spares your knees.
   Overpass) and treats **descending stairs** as the most jarring thing a knee
   can meet — they're drawn **dashed red** on the map and profile, counted in
   the knee load, and called out in the recommendation.
-- **Pain threshold** slider: choose what down-grade counts as "painful".
+- **Pain threshold** slider: choose what down-grade counts as "painful". It
+  drives the choice, not just the colours: descent over the limit dominates
+  the knee load (weighted by how steep it is), descent under it costs little.
 - **Acceptable detour** slider + **Suggest a gentler route** button: trade a bit
   of extra distance for less steep descent, capped at the detour you allow.
   Near-ties in knee load go to the **shorter** route, so a barely-gentler
@@ -69,7 +74,7 @@ index.html        markup + script/style includes
 css/styles.css    all styling
 js/core.js        namespace, config, app state, DOM helpers
 js/geo.js         geometry helpers (haversine, bearing, resample, smooth)
-js/api.js         routing (OSRM foot), elevation (Open-Meteo), geocoding (Nominatim)
+js/api.js         routing (OSRM foot), elevation (Kartverket / Open-Meteo), geocoding (Nominatim)
 js/analysis.js    route scoring + gentlest-within-detour selection
 js/ui.js          map drawing, elevation profile, stats, recommendation card
 js/app.js         map init, waypoint flow, controls, orchestration
@@ -80,7 +85,8 @@ namespace, so they work both from `file://` and when deployed.
 
 ## Data & disclaimer
 
-Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Open-Meteo DEM
-(~30 m). Stairs: OpenStreetMap via Overpass. Geocoding: Nominatim
-(OpenStreetMap). Planning aid only — not medical advice. Grades from public
-elevation data can be noisy on short segments.
+Routing: OSM foot profile (routing.openstreetmap.de). Elevation: Kartverket's
+national terrain model (DTM 1 m, ws.geonorge.no) in Norway, Open-Meteo DEM
+(~90 m) elsewhere. Stairs: OpenStreetMap via Overpass. Geocoding: Nominatim
+(OpenStreetMap). Planning aid only — not medical advice. Grades from the
+coarse DEM outside Norway can be noisy on short segments.
